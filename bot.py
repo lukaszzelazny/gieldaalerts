@@ -1,12 +1,24 @@
 import yfinance as yf
 import requests
 import time
+from datetime import datetime, time as dt_time
+import pytz
 
 # KONFIGURACJA
 TOKEN = "8263884523:AAHesqW2iJclhgbJe9rB_jh8BESPbJMynPE"
 CHAT_ID = "7628431599"
-TICKERS = ["PKN.WA", "CDR.WA", "PKO.WA", "ZLYTICKER"]  # przykładowo dodałem błędny ticker
-SLEEP_TIME = 3600  # czas w sekundach między sprawdzeniami (np. 3600 = 1 godzina)
+
+# Słownik tickerów i giełd, np. GPW lub NYSE/NASDAQ
+TICKERS = {
+    "PKN.WA": "GPW",
+    "CDR.WA": "GPW",
+    "PKO.WA": "GPW",
+    "AAPL": "NYSE",
+    "TSLA": "NASDAQ"
+}
+
+SLEEP_TIME = 3600  # czas między sprawdzeniami w sekundach (np. 1 godzina)
+OFF_HOURS_SLEEP = 1800  # czas snu poza sesją giełdową (np. 30 minut)
 
 DROP_THRESHOLDS = {
     "czerwony": 7,
@@ -14,8 +26,11 @@ DROP_THRESHOLDS = {
     "zielony": 3
 }
 
-# Zbiór tickerów z błędem, dla których już wysłaliśmy alert
 tickery_z_bledem = set()
+
+# Strefy czasowe
+warsaw_tz = pytz.timezone("Europe/Warsaw")
+us_tz = pytz.timezone("US/Eastern")
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -37,10 +52,39 @@ def alert_color(procent_spadku):
     else:
         return None
 
+def is_market_open_for(exchange):
+    now = None
+    weekday = None
+    if exchange == "GPW":
+        now = datetime.now(warsaw_tz)
+        weekday = now.weekday()
+        if weekday >= 5:  # sobota/niedziela
+            return False
+        market_open = dt_time(9, 0)
+        market_close = dt_time(17, 0)
+        return market_open <= now.time() <= market_close
+
+    elif exchange in ["NYSE", "NASDAQ"]:
+        now = datetime.now(us_tz)
+        weekday = now.weekday()
+        if weekday >= 5:
+            return False
+        market_open = dt_time(9, 30)
+        market_close = dt_time(16, 0)
+        return market_open <= now.time() <= market_close
+
+    else:
+        # Domyślnie uznajemy, że rynek jest otwarty
+        return True
+
 def check_prices():
     global tickery_z_bledem
 
-    for ticker in TICKERS:
+    for ticker, exchange in TICKERS.items():
+        if not is_market_open_for(exchange):
+            print(f"⏸️ {ticker} ({exchange}) — giełda zamknięta, pomijam.")
+            continue
+
         try:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="2d")
@@ -52,7 +96,6 @@ def check_prices():
                     tickery_z_bledem.add(ticker)
                 continue
 
-            # Jeśli wcześniej był błąd, a teraz jest OK — usuwamy ticker z błędem
             if ticker in tickery_z_bledem:
                 tickery_z_bledem.remove(ticker)
 
@@ -65,8 +108,8 @@ def check_prices():
             if alert:
                 message = (
                     f"{alert}: {ticker}\n"
-                    f"Cena poprzedniego zamknięcia: {prev_close:.2f} PLN\n"
-                    f"Aktualna cena: {current_price:.2f} PLN\n"
+                    f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
+                    f"Aktualna cena: {current_price:.2f}\n"
                     f"Spadek: {spadek:.2f}%"
                 )
                 send_telegram_message(message)
