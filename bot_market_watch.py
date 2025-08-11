@@ -15,6 +15,7 @@ CHAT_ID = os.getenv("TG_CHAT_ID")      # ustaw w ENV: TG_CHAT_ID
 TICKERS_GPW = os.getenv("TICKERS_GPW", "").split(",") if os.getenv("TICKERS_GPW") else []
 TICKERS_NEWCONNECT = os.getenv("TICKERS_NEWCONNECT", "").split(",") if os.getenv("TICKERS_NEWCONNECT") else []
 TICKERS_NASDAQ = os.getenv("TICKERS_NASDAQ", "").split(",") if os.getenv("TICKERS_NASDAQ") else []
+TICKERS_NYSE = os.getenv("TICKERS_NYSE", "").split(",") if os.getenv("TICKERS_NYSE") else []
 
 # Łączna lista z info o giełdzie
 ALL_TICKERS = []
@@ -27,6 +28,11 @@ for t in TICKERS_NEWCONNECT:
 for t in TICKERS_NASDAQ:
     if t.strip():
         ALL_TICKERS.append({"symbol": t.strip(), "market": "NASDAQ"})
+
+for t in TICKERS_NYSE:
+    if t.strip():
+        ALL_TICKERS.append({"symbol": t.strip(), "market": "NYSE"})
+
 
 # Interwały (sekundy)
 PRICE_CHECK_INTERVAL = 5 * 60    # 5 minut dla cen
@@ -72,6 +78,11 @@ def load_tickers():
         t = ticker.strip()
         if t:
             tickers[t] = "NASDAQ"
+    for ticker in os.getenv("TICKERS_NYSE", "").split(","):
+        t = ticker.strip()
+        if t:
+            tickers[t] = "NYSE"
+
     return tickers
 
 TICKERS = load_tickers()
