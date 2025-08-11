@@ -12,13 +12,21 @@ import yfinance as yf
 TOKEN = os.getenv("TG_BOT_TOKEN")      # ustaw w ENV: TG_BOT_TOKEN
 CHAT_ID = os.getenv("TG_CHAT_ID")      # ustaw w ENV: TG_CHAT_ID
 
-tickers_env = os.getenv("TICKERS", "")
-TICKERS = []
-for item in tickers_env.split(","):
-    if ":" in item:
-        symbol, market = item.split(":", 1)
-        TICKERS.append({"symbol": symbol.strip(), "market": market.strip()})
+TICKERS_GPW = os.getenv("TICKERS_GPW", "").split(",") if os.getenv("TICKERS_GPW") else []
+TICKERS_NEWCONNECT = os.getenv("TICKERS_NEWCONNECT", "").split(",") if os.getenv("TICKERS_NEWCONNECT") else []
+TICKERS_NASDAQ = os.getenv("TICKERS_NASDAQ", "").split(",") if os.getenv("TICKERS_NASDAQ") else []
 
+# Łączna lista z info o giełdzie
+ALL_TICKERS = []
+for t in TICKERS_GPW:
+    if t.strip():
+        ALL_TICKERS.append({"symbol": t.strip(), "market": "GPW"})
+for t in TICKERS_NEWCONNECT:
+    if t.strip():
+        ALL_TICKERS.append({"symbol": t.strip(), "market": "NEWCONNECT"})
+for t in TICKERS_NASDAQ:
+    if t.strip():
+        ALL_TICKERS.append({"symbol": t.strip(), "market": "NASDAQ"})
 
 # Interwały (sekundy)
 PRICE_CHECK_INTERVAL = 5 * 60    # 5 minut dla cen
@@ -49,6 +57,24 @@ last_open_date = { "GPW": None, "NYSE": None, "NASDAQ": None }
 # Ostatni czas sprawdzenia cen dla giełdy (timestamp)
 last_price_check_ts = { "GPW": 0, "NYSE": 0, "NASDAQ": 0 }
 
+
+def load_tickers():
+    tickers = {}
+    for ticker in os.getenv("TICKERS_GPW", "").split(","):
+        t = ticker.strip()
+        if t:
+            tickers[t] = "GPW"
+    for ticker in os.getenv("TICKERS_NEWCONNECT", "").split(","):
+        t = ticker.strip()
+        if t:
+            tickers[t] = "NEWCONNECT"
+    for ticker in os.getenv("TICKERS_NASDAQ", "").split(","):
+        t = ticker.strip()
+        if t:
+            tickers[t] = "NASDAQ"
+    return tickers
+
+TICKERS = load_tickers()
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -115,10 +141,10 @@ def alert_color_name(spadek):
 
 
 def check_prices_for_exchange(exchange):
-    """Sprawdza ceny dla wszystkich tickerów przypisanych do danej giełdy."""
-    global tickery_z_bledem
-    for ticker, ex in TICKERS.items():
-        if ex != exchange:
+    for stock_info in ALL_TICKERS:
+        ticker = stock_info["symbol"]
+        market = stock_info["market"]
+        if market != exchange:
             continue
 
         try:
