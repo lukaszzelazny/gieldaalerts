@@ -152,32 +152,32 @@ def alert_color_name(spadek):
 
 
 def check_prices_for_exchange(exchange):
-    for stock_info in ALL_TICKERS:
-        ticker = stock_info["symbol"]
-        market = stock_info["market"]
-        if market != exchange:
-            continue
+    tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
+    if not tickers_for_exchange:
+        return
 
+    try:
+        hist = yf.download(tickers_for_exchange, period="2d", group_by="ticker", threads=True)
+    except Exception as e:
+        msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
+        print(msg)
+        send_telegram_message(msg)
+        return
+
+    for ticker in tickers_for_exchange:
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="2d")  # potrzeba minimum 2 dni
-            if hist is None or len(hist) < 2:
-                # powiadamiamy tylko raz o problemie z danym tickerem
+            df = hist[ticker] if len(tickers_for_exchange) > 1 else hist
+            if df is None or len(df) < 2:
                 if ticker not in tickery_z_bledem:
-                    msg = f"❗ Brak wystarczających danych dla {ticker} — możliwy błędny ticker lub brak notowań."
-                    print(msg)
-                    send_telegram_message(msg)
+                    send_telegram_message(f"❗ Brak danych dla {ticker}")
                     tickery_z_bledem.add(ticker)
                 continue
 
-            # jeśli wcześniej był błąd, a teraz dane są ok -> usuwamy z zestawu błędów
             if ticker in tickery_z_bledem:
                 tickery_z_bledem.remove(ticker)
 
-            prev_close = hist['Close'].iloc[-2]
-            current_price = hist['Close'].iloc[-1]
-
-            # obliczamy spadek względem poprzedniego zamknięcia
+            prev_close = df['Close'].iloc[-2]
+            current_price = df['Close'].iloc[-1]
             spadek = ((prev_close - current_price) / prev_close) * 100
 
             alert_name = alert_color_name(spadek)
@@ -192,9 +192,7 @@ def check_prices_for_exchange(exchange):
 
         except Exception as e:
             if ticker not in tickery_z_bledem:
-                err = f"❗ Błąd przy pobieraniu danych dla {ticker}: {e}"
-                print(err)
-                send_telegram_message(err)
+                send_telegram_message(f"❗ Błąd dla {ticker}: {e}")
                 tickery_z_bledem.add(ticker)
 
 
