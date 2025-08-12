@@ -154,15 +154,15 @@ def alert_color_name(spadek):
 
 
 def check_prices_for_exchange(exchange):
-    global alerted_types_today  # Use the global variable to track alerts
+    global alerted_types_today
     tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
     if not tickers_for_exchange:
         return
 
-    missing_data_tickers = []  # List to collect tickers with missing data
+    missing_data_tickers = []
 
     try:
-        hist = yf.download(tickers_for_exchange, period="2d", group_by="ticker", threads=True)
+        hist = yf.download(tickers_for_exchange, period="1y", group_by="ticker", threads=True)
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
         print(msg)
@@ -172,24 +172,22 @@ def check_prices_for_exchange(exchange):
     for ticker in tickers_for_exchange:
         try:
             df = hist[ticker] if len(tickers_for_exchange) > 1 else hist
-            if df is None or len(df) < 2:
-                missing_data_tickers.append(ticker)  # Collect ticker with missing data
+            if df is None or len(df) < 252:
+                missing_data_tickers.append(ticker)
                 continue
 
-            if ticker in tickery_z_bledem:
-                tickery_z_bledem.remove(ticker)
-
+            # ============================
+            # 1) ALERTY CENOWE (Twoje stare)
+            # ============================
             prev_close = df['Close'].iloc[-2]
             current_price = df['Close'].iloc[-1]
             spadek = ((prev_close - current_price) / prev_close) * 100
 
             alert_name = alert_color_name(spadek)
             if alert_name:
-                # Check if this alert type has already been sent for this ticker today
                 if ticker not in alerted_types_today:
                     alerted_types_today[ticker] = set()
-
-                if alert_name not in alerted_types_today[ticker]:  # Check if alert type already sent
+                if alert_name not in alerted_types_today[ticker]:
                     message = (
                         f"{alert_name}: {ticker}\n"
                         f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
@@ -197,17 +195,47 @@ def check_prices_for_exchange(exchange):
                         f"Spadek: {spadek:.2f}%"
                     )
                     send_telegram_message(message)
-                    alerted_types_today[ticker].add(alert_name)  # Mark this alert type as sent for the ticker
+                    alerted_types_today[ticker].add(alert_name)
+
+            # ============================
+            # 2) ALERTY TECHNICZNE (1. & 2.)
+            # ============================
+            avg_volume = df['Volume'].tail(20).mean()
+            high_52w = df['Close'].max()
+            low_52w = df['Close'].min()
+
+            if current_price >= high_52w * 0.999 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
+                send_telegram_message(f"🚀 {ticker}: Nowe 52-week High z dużym wolumenem")
+
+            if current_price <= low_52w * 1.001 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
+                send_telegram_message(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem")
+
+            # ============================
+            # 3) ALERTY TREND + RSI
+            # ============================
+            df['MA50'] = df['Close'].rolling(window=50).mean()
+            df['MA200'] = df['Close'].rolling(window=200).mean()
+
+            delta = df['Close'].diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.rolling(window=14).mean()
+            avg_loss = loss.rolling(window=14).mean()
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            last_rsi = rsi.iloc[-1]
+
+            if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 40:
+                send_telegram_message(f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)")
+
+            if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 60:
+                send_telegram_message(f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)")
 
         except Exception as e:
-            if ticker not in tickery_z_bledem:
-                missing_data_tickers.append(ticker)  # Collect ticker with error
-                tickery_z_bledem.add(ticker)
+            missing_data_tickers.append(ticker)
 
-    # Send a single message for all tickers with missing data
     if missing_data_tickers:
-        tickers_list = ', '.join(missing_data_tickers)
-        send_telegram_message(f"❗ Brak danych dla: {tickers_list}")
+        send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
 
 def main_loop():
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
