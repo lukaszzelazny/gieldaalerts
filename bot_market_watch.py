@@ -176,9 +176,7 @@ def check_prices_for_exchange(exchange):
                 missing_data_tickers.append(ticker)
                 continue
 
-            # ============================
-            # 1) ALERTY CENOWE (Twoje stare)
-            # ============================
+            # ===== 1) ALERTY CENOWE =====
             prev_close = df['Close'].iloc[-2]
             current_price = df['Close'].iloc[-1]
             spadek = ((prev_close - current_price) / prev_close) * 100
@@ -188,34 +186,24 @@ def check_prices_for_exchange(exchange):
                 if ticker not in alerted_types_today:
                     alerted_types_today[ticker] = set()
                 if alert_name not in alerted_types_today[ticker]:
-                    message = (
+                    send_telegram_message(
                         f"{alert_name}: {ticker}\n"
                         f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
                         f"Aktualna cena: {current_price:.2f}\n"
                         f"Spadek: {spadek:.2f}%"
                     )
-                    send_telegram_message(message)
                     alerted_types_today[ticker].add(alert_name)
 
-            # ============================
-            # 2) ALERTY TECHNICZNE (1. & 2.)
-            # ============================
+            # ===== 2) Wskaźniki bazowe =====
             avg_volume = df['Volume'].tail(20).mean()
             high_52w = df['Close'].max()
             low_52w = df['Close'].min()
 
-            if current_price >= high_52w * 0.999 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
-                send_telegram_message(f"🚀 {ticker}: Nowe 52-week High z dużym wolumenem")
-
-            if current_price <= low_52w * 1.001 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
-                send_telegram_message(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem")
-
-            # ============================
-            # 3) ALERTY TREND + RSI
-            # ============================
+            # MA50 i MA200
             df['MA50'] = df['Close'].rolling(window=50).mean()
             df['MA200'] = df['Close'].rolling(window=200).mean()
 
+            # RSI
             delta = df['Close'].diff()
             gain = delta.where(delta > 0, 0)
             loss = -delta.where(delta < 0, 0)
@@ -225,17 +213,33 @@ def check_prices_for_exchange(exchange):
             rsi = 100 - (100 / (1 + rs))
             last_rsi = rsi.iloc[-1]
 
+            # ===== 3) 52-week High/Low + wolumen =====
+            if current_price >= high_52w * 0.999 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
+                send_telegram_message(f"🚀 {ticker}: Nowe 52-week High z dużym wolumenem")
+
+            if current_price <= low_52w * 1.001 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
+                send_telegram_message(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem")
+
+            # ===== 4) Trend + RSI umiarkowany =====
             if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 40:
                 send_telegram_message(f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)")
 
             if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 60:
                 send_telegram_message(f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)")
 
-        except Exception as e:
+            # ===== 5) Trend + RSI ekstremalny =====
+            if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 30:
+                send_telegram_message(f"💎 {ticker}: Trend wzrostowy + RSI < 30 (silny sygnał kupna)")
+
+            if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 70:
+                send_telegram_message(f"🔥 {ticker}: Trend spadkowy + RSI > 70 (silny sygnał sprzedaży)")
+
+        except Exception:
             missing_data_tickers.append(ticker)
 
     if missing_data_tickers:
         send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
+
 
 def main_loop():
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
