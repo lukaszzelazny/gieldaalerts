@@ -234,7 +234,8 @@ def check_prices_for_exchange(exchange):
             if current_price <= low_52w * 1.001 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
                 send_rsi_alert(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem", "volume_low")
 
-        except Exception:
+        except Exception as ex:
+            print(ex)
             missing_data_tickers.append(ticker)
 
     if missing_data_tickers:
