@@ -162,7 +162,9 @@ def check_prices_for_exchange(exchange):
     missing_data_tickers = []
 
     try:
-        hist = yf.download(tickers_for_exchange, period="1y", group_by="ticker", threads=True)
+        hist = yf.download(tickers_for_exchange, period="1y", group_by="ticker", threads=True,
+                           cache=False)
+
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
         print(msg)
