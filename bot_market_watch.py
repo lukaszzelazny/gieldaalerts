@@ -153,8 +153,6 @@ def alert_color_name(spadek):
     return None
 
 
-import datetime
-
 def check_prices_for_exchange(exchange):
     global alerted_types_today  # { ticker: set(alert_type) }
     tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
