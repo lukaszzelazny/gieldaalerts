@@ -153,8 +153,10 @@ def alert_color_name(spadek):
     return None
 
 
+import datetime
+
 def check_prices_for_exchange(exchange):
-    global alerted_types_today
+    global alerted_types_today  # { ticker: set(alert_type) }
     tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
     if not tickers_for_exchange:
         return
@@ -176,34 +178,29 @@ def check_prices_for_exchange(exchange):
                 missing_data_tickers.append(ticker)
                 continue
 
-            # ===== 1) ALERTY CENOWE =====
+            if ticker not in alerted_types_today:
+                alerted_types_today[ticker] = set()
+
             prev_close = df['Close'].iloc[-2]
             current_price = df['Close'].iloc[-1]
             spadek = ((prev_close - current_price) / prev_close) * 100
 
-            alert_name = alert_color_name(spadek)
-            if alert_name:
-                if ticker not in alerted_types_today:
-                    alerted_types_today[ticker] = set()
-                if alert_name not in alerted_types_today[ticker]:
-                    send_telegram_message(
-                        f"{alert_name}: {ticker}\n"
-                        f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
-                        f"Aktualna cena: {current_price:.2f}\n"
-                        f"Spadek: {spadek:.2f}%"
-                    )
-                    alerted_types_today[ticker].add(alert_name)
+            alert_code = alert_color_name(spadek)
 
-            # ===== 2) Wskaźniki bazowe =====
-            avg_volume = df['Volume'].tail(20).mean()
-            high_52w = df['Close'].max()
-            low_52w = df['Close'].min()
+            if alert_code not in alerted_types_today[ticker]:
+                alerted_types_today[ticker].add(alert_code)
+                msg = (
+                    f"{alert_code}: {ticker}\n"
+                    f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
+                    f"Aktualna cena: {current_price:.2f}\n"
+                    f"Spadek: {spadek:.2f}%"
+                )
+                send_telegram_message(msg)
 
-            # MA50 i MA200
+            # MA i RSI
             df['MA50'] = df['Close'].rolling(window=50).mean()
             df['MA200'] = df['Close'].rolling(window=200).mean()
 
-            # RSI
             delta = df['Close'].diff()
             gain = delta.where(delta > 0, 0)
             loss = -delta.where(delta < 0, 0)
@@ -213,33 +210,37 @@ def check_prices_for_exchange(exchange):
             rsi = 100 - (100 / (1 + rs))
             last_rsi = rsi.iloc[-1]
 
-            # ===== 3) 52-week High/Low + wolumen =====
-            if current_price >= high_52w * 0.999 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
-                send_telegram_message(f"🚀 {ticker}: Nowe 52-week High z dużym wolumenem")
+            def send_rsi_alert(msg, alert_code):
+                if alert_code not in alerted_types_today[ticker]:
+                    send_telegram_message(msg)
+                    alerted_types_today[ticker].add(alert_code)
 
-            if current_price <= low_52w * 1.001 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
-                send_telegram_message(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem")
-
-            # ===== 4) Trend + RSI umiarkowany =====
+            # RSI + Trend (MA50 vs MA200) - umiarkowane sygnały
             if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 40:
-                send_telegram_message(f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)")
-
+                send_rsi_alert(f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)", "rsi_buy_moderate")
             if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 60:
-                send_telegram_message(f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)")
+                send_rsi_alert(f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)", "rsi_sell_moderate")
 
-            # ===== 5) Trend + RSI ekstremalny =====
+            # RSI + Trend (MA50 vs MA200) - ekstremalne sygnały
             if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 30:
-                send_telegram_message(f"💎 {ticker}: Trend wzrostowy + RSI < 30 (silny sygnał kupna)")
-
+                send_rsi_alert(f"💎 {ticker}: Trend wzrostowy + RSI < 30 (silny sygnał kupna)", "rsi_buy_strong")
             if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 70:
-                send_telegram_message(f"🔥 {ticker}: Trend spadkowy + RSI > 70 (silny sygnał sprzedaży)")
+                send_rsi_alert(f"🔥 {ticker}: Trend spadkowy + RSI > 70 (silny sygnał sprzedaży)", "rsi_sell_strong")
+
+            # 52 tyg. high/low z wolumenem
+            avg_volume = df['Volume'].tail(20).mean()
+            high_52w = df['Close'].max()
+            low_52w = df['Close'].min()
+            if current_price >= high_52w * 0.999 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
+                send_rsi_alert(f"🚀 {ticker}: Nowe 52-week High z dużym wolumenem", "volume_high")
+            if current_price <= low_52w * 1.001 and df['Volume'].iloc[-1] > 1.5 * avg_volume:
+                send_rsi_alert(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem", "volume_low")
 
         except Exception:
             missing_data_tickers.append(ticker)
 
     if missing_data_tickers:
         send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
-
 
 def main_loop():
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
