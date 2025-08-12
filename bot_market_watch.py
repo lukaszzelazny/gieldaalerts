@@ -159,6 +159,8 @@ def check_prices_for_exchange(exchange):
     if not tickers_for_exchange:
         return
 
+    missing_data_tickers = []  # List to collect tickers with missing data
+
     try:
         hist = yf.download(tickers_for_exchange, period="2d", group_by="ticker", threads=True)
     except Exception as e:
@@ -171,9 +173,7 @@ def check_prices_for_exchange(exchange):
         try:
             df = hist[ticker] if len(tickers_for_exchange) > 1 else hist
             if df is None or len(df) < 2:
-                if ticker not in tickery_z_bledem:
-                    send_telegram_message(f"❗ Brak danych dla {ticker}")
-                    tickery_z_bledem.add(ticker)
+                missing_data_tickers.append(ticker)  # Collect ticker with missing data
                 continue
 
             if ticker in tickery_z_bledem:
@@ -201,8 +201,13 @@ def check_prices_for_exchange(exchange):
 
         except Exception as e:
             if ticker not in tickery_z_bledem:
-                send_telegram_message(f"❗ Błąd dla {ticker}: {e}")
+                missing_data_tickers.append(ticker)  # Collect ticker with error
                 tickery_z_bledem.add(ticker)
+
+    # Send a single message for all tickers with missing data
+    if missing_data_tickers:
+        tickers_list = ', '.join(missing_data_tickers)
+        send_telegram_message(f"❗ Brak danych dla: {tickers_list}")
 
 def main_loop():
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
