@@ -63,6 +63,7 @@ last_open_date = { "GPW": None, "NYSE": None, "NASDAQ": None }
 # Ostatni czas sprawdzenia cen dla giełdy (timestamp)
 last_price_check_ts = { "GPW": 0, "NYSE": 0, "NASDAQ": 0 }
 
+alerted_types_today = {}
 
 def load_tickers():
     tickers = {}
@@ -130,6 +131,7 @@ def market_open_watch():
         if open_now:
             # jeśli jeszcze dziś nie wysłaliśmy powiadomienia o otwarciu -> wyślij
             if last_open_date[ex] != today:
+                alerted_types_today.clear()
                 send_telegram_message(f"🟢 {ex} — otwarta. Bot działa i będzie monitorował tickery na tej giełdzie.")
                 last_open_date[ex] = today
         else:
@@ -152,6 +154,7 @@ def alert_color_name(spadek):
 
 
 def check_prices_for_exchange(exchange):
+    global alerted_types_today  # Use the global variable to track alerts
     tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
     if not tickers_for_exchange:
         return
@@ -182,22 +185,26 @@ def check_prices_for_exchange(exchange):
 
             alert_name = alert_color_name(spadek)
             if alert_name:
-                message = (
-                    f"{alert_name}: {ticker}\n"
-                    f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
-                    f"Aktualna cena: {current_price:.2f}\n"
-                    f"Spadek: {spadek:.2f}%"
-                )
-                send_telegram_message(message)
+                # Check if this alert type has already been sent for this ticker today
+                if ticker not in alerted_types_today:
+                    alerted_types_today[ticker] = set()
+
+                if alert_name not in alerted_types_today[ticker]:  # Check if alert type already sent
+                    message = (
+                        f"{alert_name}: {ticker}\n"
+                        f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
+                        f"Aktualna cena: {current_price:.2f}\n"
+                        f"Spadek: {spadek:.2f}%"
+                    )
+                    send_telegram_message(message)
+                    alerted_types_today[ticker].add(alert_name)  # Mark this alert type as sent for the ticker
 
         except Exception as e:
             if ticker not in tickery_z_bledem:
                 send_telegram_message(f"❗ Błąd dla {ticker}: {e}")
                 tickery_z_bledem.add(ticker)
 
-
 def main_loop():
-    # Wyślij startowe potwierdzenie
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
 
     # Zainicjuj last_price_check_ts
