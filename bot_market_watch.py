@@ -152,6 +152,16 @@ def alert_color_name(spadek):
         return "🟢 ZIELONY ALERT"
     return None
 
+def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
+    for attempt in range(max_retries):
+        try:
+            hist = yf.download(tickers, period=period, group_by="ticker", threads=True)
+            return hist
+        except Exception as e:
+            print(f"Próba {attempt+1} nie powiodła się: {e}")
+            time.sleep(delay)
+    raise Exception(f"Nie udało się pobrać danych po {max_retries} próbach")
+
 
 def check_prices_for_exchange(exchange):
     global alerted_types_today  # { ticker: set(alert_type) }
@@ -162,9 +172,7 @@ def check_prices_for_exchange(exchange):
     missing_data_tickers = []
 
     try:
-        hist = yf.download(tickers_for_exchange, period="1y", group_by="ticker", threads=True,
-                           cache=False)
-
+        hist = download_with_retry(tickers_for_exchange)
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
         print(msg)
