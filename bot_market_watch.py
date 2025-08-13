@@ -181,8 +181,8 @@ def check_prices_for_exchange(exchange):
 
     for ticker in tickers_for_exchange:
         try:
-            df = hist[ticker] if len(tickers_for_exchange) > 1 else hist
-            if df is None or len(df) < 252:
+            df = hist[ticker]
+            if df is None or len(df) < 240:
                 missing_data_tickers.append(ticker)
                 continue
 
@@ -195,7 +195,7 @@ def check_prices_for_exchange(exchange):
 
             alert_code = alert_color_name(spadek)
 
-            if alert_code not in alerted_types_today[ticker]:
+            if alert_code and alert_code not in alerted_types_today[ticker]:
                 alerted_types_today[ticker].add(alert_code)
                 msg = (
                     f"{alert_code}: {ticker}\n"
