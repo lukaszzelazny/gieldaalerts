@@ -223,17 +223,17 @@ def check_prices_for_exchange(exchange):
                     send_telegram_message(msg)
                     alerted_types_today[ticker].add(alert_code)
 
-            # RSI + Trend (MA50 vs MA200) - umiarkowane sygnały
-            if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 40:
-                send_rsi_alert(f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)", "rsi_buy_moderate")
-            if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 60:
-                send_rsi_alert(f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)", "rsi_sell_moderate")
-
             # RSI + Trend (MA50 vs MA200) - ekstremalne sygnały
             if df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 30:
                 send_rsi_alert(f"💎 {ticker}: Trend wzrostowy + RSI < 30 (silny sygnał kupna)", "rsi_buy_strong")
+            elif df['MA50'].iloc[-1] > df['MA200'].iloc[-1] and last_rsi < 40:
+                send_rsi_alert(f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)", "rsi_buy_moderate")
+
             if df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 70:
                 send_rsi_alert(f"🔥 {ticker}: Trend spadkowy + RSI > 70 (silny sygnał sprzedaży)", "rsi_sell_strong")
+            elif df['MA50'].iloc[-1] < df['MA200'].iloc[-1] and last_rsi > 60: # RSI + Trend (MA50 vs MA200) - umiarkowane sygnały
+                send_rsi_alert(f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)", "rsi_sell_moderate")
+
 
             # 52 tyg. high/low z wolumenem
             avg_volume = df['Volume'].tail(20).mean()
