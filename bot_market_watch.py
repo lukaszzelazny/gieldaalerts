@@ -9,8 +9,8 @@ import pandas as pd
 from ticker_analizer import getScoreWithDetails
 from moving_analizer import calculate_moving_averages_signals
 
-# from dotenv import load_dotenv
-# load_dotenv()
+from dotenv import load_dotenv
+load_dotenv()
 
 # + twoje istniejące importy (yfinance, telegram, etc.)
 # ----------------------
@@ -98,9 +98,11 @@ def load_tickers():
 
 TICKERS = load_tickers()
 
-def send_telegram_message(text):
+def send_telegram_message(text, parse_mode="HTML"):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text}
+    payload = {"chat_id": CHAT_ID, "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True }
     try:
         resp = requests.post(url, json=payload, timeout=10)
         if not resp.ok:
@@ -216,7 +218,7 @@ def check_prices_for_exchange(exchange):
             if alert_code and alert_code not in alerted_types_today[ticker]:
                 alerted_types_today[ticker].add(alert_code)
                 msg = (
-                    f"{alert_code}: {ticker}\n"
+                    f"{alert_code}: !!! <b>{ticker}</b> !!!\n"
                     f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
                     f"Aktualna cena: {current_price:.2f}\n"
                     f"Spadek: {spadek:.2f}%"
@@ -225,17 +227,17 @@ def check_prices_for_exchange(exchange):
 
             if ticker in MY_TICKERS:
                 rate, details = getScoreWithDetails(df)
-                alert_code_s = rate + 's'
+                alert_code_s = str(rate) + 's'
                 if alert_code_s not in alerted_types_today[ticker]:
-                    msg = (f"Wskaźniki dla: {ticker} to:\n"
+                    msg = (f"Wskaźniki dla: <b>{ticker}</b> to:\n"
                            f"{RATING_LABELS.get(rate)}"
                            )
                     send_telegram_message(msg)
                 ma_results = calculate_moving_averages_signals(df)
                 movingRate = ma_results['overall_summary']['signal']
-                alert_code_m = movingRate + 'm'
+                alert_code_m = str(movingRate) + 'm'
                 if alert_code_m not in alerted_types_today[ticker]:
-                    msg = (f"Średnie kroczące dla: {ticker} to:\n"
+                    msg = (f"Średnie kroczące dla: <b>{ticker}</b> to:\n"
                            f"{RATING_LABELS.get(movingRate)}"
                            )
                     send_telegram_message(msg)
