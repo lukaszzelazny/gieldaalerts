@@ -6,10 +6,18 @@ from datetime import datetime, time as dt_time, date
 import pytz
 import yfinance as yf
 import pandas as pd
+from ticker_analizer import getScoreWithDetails
+from moving_analizer import calculate_moving_averages_signals
+
+# from dotenv import load_dotenv
+# load_dotenv()
+
 # + twoje istniejące importy (yfinance, telegram, etc.)
 # ----------------------
 # KONFIGURACJA (dostosuj)
 # ----------------------
+
+
 TOKEN = os.getenv("TG_BOT_TOKEN")      # ustaw w ENV: TG_BOT_TOKEN
 CHAT_ID = os.getenv("TG_CHAT_ID")      # ustaw w ENV: TG_CHAT_ID
 
@@ -17,6 +25,7 @@ TICKERS_GPW = os.getenv("TICKERS_GPW", "").split(",") if os.getenv("TICKERS_GPW"
 TICKERS_NEWCONNECT = os.getenv("TICKERS_NEWCONNECT", "").split(",") if os.getenv("TICKERS_NEWCONNECT") else []
 TICKERS_NASDAQ = os.getenv("TICKERS_NASDAQ", "").split(",") if os.getenv("TICKERS_NASDAQ") else []
 TICKERS_NYSE = os.getenv("TICKERS_NYSE", "").split(",") if os.getenv("TICKERS_NYSE") else []
+MY_TICKERS = os.getenv("MY_TICKERS", "").split(",") if os.getenv("MY_TICKERS") else []
 
 # Łączna lista z info o giełdzie
 ALL_TICKERS = []
@@ -165,6 +174,13 @@ def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
 
 
 def check_prices_for_exchange(exchange):
+    RATING_LABELS = {
+        2: "🟢🟢 <b>Mocne kupuj</b>",
+        1: "🟢 <b>Kupuj</b>",
+        0: "⚪ <b>Trzymaj</b>",
+        -1: "🔴 <b>Sprzedaj</b>",
+        -2: "🔴🔴 <b>Mocne sprzedaj</b>",
+    }
     global alerted_types_today  # { ticker: set(alert_type) }
     tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
     if not tickers_for_exchange:
@@ -207,182 +223,23 @@ def check_prices_for_exchange(exchange):
                 )
                 send_telegram_message(msg)
 
-            # === OBLICZENIE WSKAŹNIKÓW TECHNICZNYCH ===
-            # Moving Averages
-            df['SMA15'] = df['Close'].rolling(window=15).mean()
-            df['SMA30'] = df['Close'].rolling(window=30).mean()
-            df['SMA50'] = df['Close'].rolling(window=50).mean()
-            df['SMA200'] = df['Close'].rolling(window=200).mean()
-
-            # RSI
-            delta = df['Close'].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-            avg_gain = gain.rolling(window=14).mean()
-            avg_loss = loss.rolling(window=14).mean()
-            rs = avg_gain / avg_loss
-            df['RSI'] = 100 - (100 / (1 + rs))
-
-            # Volume analysis
-            df['Volume_MA20'] = df['Volume'].rolling(window=20).mean()
-
-            # High/Low 20-period
-            df['High_20'] = df['High'].rolling(window=20).max()
-            df['Low_20'] = df['Low'].rolling(window=20).min()
-
-            # Ostatnie wartości
-            sma15_current = df['SMA15'].iloc[-1]
-            sma30_current = df['SMA30'].iloc[-1]
-            sma50_current = df['SMA50'].iloc[-1]
-            sma200_current = df['SMA200'].iloc[-1]
-            rsi_current = df['RSI'].iloc[-1]
-            volume_current = df['Volume'].iloc[-1]
-            volume_avg = df['Volume_MA20'].iloc[-1]
-            high_20 = df['High_20'].iloc[-1]
-
-            # Sprawdzenie czy mamy wystarczająco danych
-            if pd.isna(sma30_current) or pd.isna(rsi_current):
-                continue
-
-            def send_technical_alert(msg, alert_code):
-                if alert_code not in alerted_types_today[ticker]:
+            if ticker in MY_TICKERS:
+                rate, details = getScoreWithDetails(df)
+                alert_code_s = rate + 's'
+                if alert_code_s not in alerted_types_today[ticker]:
+                    msg = (f"Wskaźniki dla: {ticker} to:\n"
+                           f"{RATING_LABELS.get(rate)}"
+                           )
                     send_telegram_message(msg)
-                    alerted_types_today[ticker].add(alert_code)
+                ma_results = calculate_moving_averages_signals(df)
+                movingRate = ma_results['overall_summary']['signal']
+                alert_code_m = movingRate + 'm'
+                if alert_code_m not in alerted_types_today[ticker]:
+                    msg = (f"Średnie kroczące dla: {ticker} to:\n"
+                           f"{RATING_LABELS.get(movingRate)}"
+                           )
+                    send_telegram_message(msg)
 
-            # === IMPLEMENTACJA KOMBINACJI SYGNAŁÓW LONG ===
-
-            # COMBO A - "Trend Breakout" (★★★★★)
-            trend_signal = sma15_current > sma30_current
-            momentum_signal = 45 <= rsi_current <= 65
-            breakout_signal = current_price > high_20
-            volume_signal = volume_current > 1.5 * volume_avg
-            broader_trend = sma15_current > sma50_current if not pd.isna(
-                sma50_current) else False
-
-            signals_combo_a = sum([trend_signal, momentum_signal, breakout_signal])
-            enhancing_signals_a = sum([volume_signal, broader_trend])
-
-            if signals_combo_a >= 2 and enhancing_signals_a >= 1:
-                strength = "🔥🔥🔥" if signals_combo_a == 3 and enhancing_signals_a >= 2 else "🔥🔥"
-                send_technical_alert(
-                    f"{strength} COMBO A - Trend Breakout: {ticker}\n"
-                    f"📊 SMA15({sma15_current:.2f}) > SMA30({sma30_current:.2f}): {'✅' if trend_signal else '❌'}\n"
-                    f"📈 RSI({rsi_current:.1f}) 45-65: {'✅' if momentum_signal else '❌'}\n"
-                    f"🚀 Breakout 20H({high_20:.2f}): {'✅' if breakout_signal else '❌'}\n"
-                    f"📊 Volume >150%: {'✅' if volume_signal else '❌'}\n"
-                    f"💰 Cena: {current_price:.2f} | Target: {current_price * 1.06:.2f}-{current_price * 1.09:.2f}",
-                    f"combo_a_{ticker}"
-                )
-
-            # COMBO B - "RSI Recovery" (★★★★☆)
-            rsi_recovery = 35 < rsi_current <= 50 and df['RSI'].iloc[-2] < 40
-            rsi_momentum = rsi_current > 40
-            volume_confirm = volume_current > volume_avg
-
-            # Sprawdzenie dywergencji (uproszczona)
-            price_lower = current_price < df['Close'].iloc[
-                -5]  # Cena niższa niż 5 sesji temu
-            rsi_higher = rsi_current > df['RSI'].iloc[-5]  # RSI wyższe niż 5 sesji temu
-            divergence = price_lower and rsi_higher
-
-            signals_combo_b = sum([trend_signal, rsi_recovery, rsi_momentum])
-            enhancing_signals_b = sum([volume_confirm, divergence])
-
-            if signals_combo_b >= 2 and enhancing_signals_b >= 1:
-                strength = "🔥🔥🔥" if signals_combo_b == 3 and enhancing_signals_b >= 2 else "🔥🔥"
-                send_technical_alert(
-                    f"{strength} COMBO B - RSI Recovery: {ticker}\n"
-                    f"📊 Trend SMA15>SMA30: {'✅' if trend_signal else '❌'}\n"
-                    f"📈 RSI Recovery({rsi_current:.1f}): {'✅' if rsi_recovery else '❌'}\n"
-                    f"🔄 RSI >40: {'✅' if rsi_momentum else '❌'}\n"
-                    f"📊 Volume powyżej średniej: {'✅' if volume_confirm else '❌'}\n"
-                    f"🔄 Pozytywna dywergencja: {'✅' if divergence else '❌'}\n"
-                    f"💰 Cena: {current_price:.2f} | Target: {current_price * 1.04:.2f}-{current_price * 1.08:.2f}",
-                    f"combo_b_{ticker}"
-                )
-
-            # COMBO C - "Pullback Buy" (★★★★☆)
-            strong_trend = sma15_current > sma30_current > sma50_current if not pd.isna(
-                sma50_current) else trend_signal
-            pullback_rsi = 35 <= rsi_current <= 50
-            support_test = abs(
-                current_price - sma30_current) / sma30_current < 0.02  # W odległości 2% od SMA30
-
-            # Sprawdzenie formacji świecowej (uproszczone)
-            open_price = df['Open'].iloc[-1]
-            high_price = df['High'].iloc[-1]
-            low_price = df['Low'].iloc[-1]
-            body_size = abs(current_price - open_price)
-            total_range = high_price - low_price
-            hammer_like = body_size < total_range * 0.3 and current_price > open_price  # Uproszczona świeca młotkowa
-
-            signals_combo_c = sum([strong_trend, pullback_rsi, support_test])
-            enhancing_signals_c = sum([volume_confirm, hammer_like])
-
-            if signals_combo_c >= 2 and enhancing_signals_c >= 1:
-                strength = "🔥🔥🔥" if signals_combo_c == 3 and enhancing_signals_c >= 2 else "🔥🔥"
-                send_technical_alert(
-                    f"{strength} COMBO C - Pullback Buy: {ticker}\n"
-                    f"📊 Silny trend SMA15>SMA30>SMA50: {'✅' if strong_trend else '❌'}\n"
-                    f"📈 RSI pullback({rsi_current:.1f}): {'✅' if pullback_rsi else '❌'}\n"
-                    f"🎯 Test SMA30 support: {'✅' if support_test else '❌'}\n"
-                    f"📊 Volume: {'✅' if volume_confirm else '❌'}\n"
-                    f"🕯️ Bullish candle: {'✅' if hammer_like else '❌'}\n"
-                    f"💰 Cena: {current_price:.2f} | Target: {current_price * 1.03:.2f}-{current_price * 1.06:.2f}",
-                    f"combo_c_{ticker}"
-                )
-
-            # === ORYGINALNY SYSTEM RSI + TREND (zachowany) ===
-            if not pd.isna(sma50_current) and not pd.isna(sma200_current):
-                # RSI + Trend (MA50 vs MA200) - ekstremalne sygnały
-                if sma50_current > sma200_current and rsi_current < 30:
-                    send_technical_alert(
-                        f"💎 {ticker}: Trend wzrostowy + RSI < 30 (silny sygnał kupna)",
-                        "rsi_buy_strong")
-                elif sma50_current > sma200_current and rsi_current < 40:
-                    send_technical_alert(
-                        f"📈 {ticker}: Trend wzrostowy + RSI < 40 (potencjalna okazja kupna)",
-                        "rsi_buy_moderate")
-
-                if sma50_current < sma200_current and rsi_current > 70:
-                    send_technical_alert(
-                        f"🔥 {ticker}: Trend spadkowy + RSI > 70 (silny sygnał sprzedaży)",
-                        "rsi_sell_strong")
-                elif sma50_current < sma200_current and rsi_current > 60:
-                    send_technical_alert(
-                        f"📉 {ticker}: Trend spadkowy + RSI > 60 (potencjalny sygnał sprzedaży)",
-                        "rsi_sell_moderate")
-
-            # === SYSTEM 52-WEEK HIGH/LOW (zachowany) ===
-            high_52w = df['Close'].max()
-            low_52w = df['Close'].min()
-            if current_price >= high_52w * 0.999 and volume_current > 1.5 * volume_avg:
-                send_technical_alert(f"🚀 {ticker}: Nowe 52-week High z dużym wolumenem",
-                                     "volume_high")
-            if current_price <= low_52w * 1.001 and volume_current > 1.5 * volume_avg:
-                send_technical_alert(f"⚠️ {ticker}: Nowe 52-week Low z dużym wolumenem",
-                                     "volume_low")
-
-            # === DODATKOWE ALERTY RYZYKA ===
-            # Alert o przegrzaniu w trendzie wzrostowym
-            if trend_signal and rsi_current > 75:
-                send_technical_alert(
-                    f"⚠️ {ticker}: Trend wzrostowy ale RSI > 75 (przegrzanie)",
-                    "overheated")
-
-            # Alert o zmianie trendu
-            if df['SMA15'].iloc[-2] > df['SMA30'].iloc[
-                -2] and sma15_current < sma30_current:
-                send_technical_alert(
-                    f"🔄 {ticker}: Zmiana trendu - SMA15 przecięła SMA30 w dół",
-                    "trend_change_down")
-
-            # Alert o silnym wolumenie bez ruchu ceny
-            daily_change = abs(spadek)
-            if volume_current > 2 * volume_avg and daily_change < 1:
-                send_technical_alert(
-                    f"👀 {ticker}: Bardzo wysoki wolumen (+{volume_current / volume_avg:.1f}x) przy małym ruchu ceny",
-                    "volume_accumulation")
 
         except Exception as ex:
             print(f"Błąd dla {ticker}: {ex}")
@@ -466,8 +323,48 @@ def main_loop():
             time.sleep(OPEN_CHECK_INTERVAL)
 
 
+def test():
+    tickers_for_exchange = ["CCC.WA"]
+    try:
+        hist = download_with_retry(tickers_for_exchange)
+    except Exception as e:
+        msg = f"❗ Błąd przy pobieraniu danych dla giełdy : {e}"
+        print(msg)
+        send_telegram_message(msg)
+        return
+    ticker = tickers_for_exchange[0]
+
+    RATING_LABELS = {
+        2: "🟢🟢 <b>Mocne kupuj</b>",
+        1: "🟢 <b>Kupuj</b>",
+        0: "⚪ <b>Trzymaj</b>",
+        -1: "🔴 <b>Sprzedaj</b>",
+        -2: "🔴🔴 <b>Mocne sprzedaj</b>",
+    }
+
+    df = hist if not isinstance(hist.columns, pd.MultiIndex) else hist[ticker]
+    rate, details = getScoreWithDetails(df)
+    msg = f"Wskaźniki dla {ticker} to {rate}"
+    print(msg)
+    ma_results = calculate_moving_averages_signals(df)
+    movingRate = ma_results['overall_summary']['signal']
+    msg = f"Srednie kroczace dla {ticker} to {movingRate}"
+    print(msg)
+
+    # msg = getDetailsText(details)
+    # print(msg)
+
+
+def getDetailsText(details):
+        # Łączenie elementów tablicy w tekst, każdy w nowej linii
+    msg = "\n".join(str(item) for item in details)
+    msg = f"Szczegóły to \n"+ f"{msg}"
+    return msg
+
+
 if __name__ == "__main__":
     try:
+        #test()
         main_loop()
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
