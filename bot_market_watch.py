@@ -305,7 +305,7 @@ def main_loop():
         now_ts = time.time()
         any_exchange_open = False
         for ex in set(TICKERS.values()):
-            if is_exchange_open(ex):
+            if 1: #is_exchange_open(ex):
                 any_exchange_open = True
                 # jeżeli minął interwał od ostatniego sprawdzenia tej giełdy
                 if now_ts - last_price_check_ts.get(ex, 0) >= PRICE_CHECK_INTERVAL:
