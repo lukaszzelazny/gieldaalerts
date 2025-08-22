@@ -238,7 +238,7 @@ def check_prices_for_exchange(exchange):
                 alert_code_m = str(movingRate) + 'm'
                 if alert_code_m not in alerted_types_today[ticker]:
                     msg = msg + f"Wskaźniki dla: <b>{ticker}</b> to:\n" if ticker not in msg else msg
-                    msg += f"Średnie kroczące: {RATING_LABELS.get(movingRate)}"
+                    msg += f"Krzywe kroczące: {RATING_LABELS.get(movingRate)}"
                     alerted_types_today[ticker].add(alert_code_m)
 
                 if msg:
@@ -286,7 +286,7 @@ def main_loop():
 
 
 def test():
-    tickers_for_exchange = ["CCC.WA"]
+    tickers_for_exchange = ["SNT.WA"]
     try:
         hist = download_with_retry(tickers_for_exchange)
     except Exception as e:
@@ -308,13 +308,14 @@ def test():
     rate, details = getScoreWithDetails(df)
     msg = f"Wskaźniki dla {ticker} to {rate}"
     print(msg)
-    ma_results = calculate_moving_averages_signals(df)
-    movingRate = ma_results['overall_summary']['signal']
-    msg = f"Srednie kroczace dla {ticker} to {movingRate}"
+    msg = getDetailsText(details)
     print(msg)
 
-    # msg = getDetailsText(details)
-    # print(msg)
+    ma_results = calculate_moving_averages_signals(df)
+    movingRate = ma_results['overall_summary']['signal']
+    msg = f"Krzywe kroczące dla {ticker} to {RATING_LABELS.get(movingRate)}"
+    print(msg)
+
 
 
 def getDetailsText(details):

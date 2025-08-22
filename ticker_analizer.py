@@ -16,7 +16,7 @@ def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
 
 
 def calculate_rsi(df, period=14):
-    """RSI - Relative Strength Index"""
+    """RSI - Relative Strength Index z poprawioną logiką sygnałów"""
     close = df['Close']
     delta = close.diff()
     gain = delta.where(delta > 0, 0)
@@ -25,23 +25,41 @@ def calculate_rsi(df, period=14):
     avg_gain = gain.rolling(window=period).mean()
     avg_loss = loss.rolling(window=period).mean()
 
+    # Zabezpieczenie przed dzieleniem przez zero
+    avg_loss = avg_loss.replace(0, 1e-10)
+
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
 
-    # Ocena
+    # Sprawdzenie czy mamy wystarczająco danych
+    if len(rsi) < 5:
+        raise ValueError("Nie ma wystarczająco danych do obliczenia średniej z 4 poprzednich wartości RSI")
+
+    # Aktualna wartość RSI
     latest_rsi = rsi.iloc[-1]
-    if latest_rsi > 70:
-        signal = "sprzedaj"
-    elif latest_rsi < 30:
+
+    # Średnia z czterech poprzednich wartości RSI
+    previous_4_rsi_mean = rsi.iloc[-5:-1].mean()
+
+    # Logika sygnałów zgodnie z nowymi wymaganiami
+    if (25 <= latest_rsi <= 75) and (previous_4_rsi_mean < latest_rsi):
         signal = "kupuj"
-    else:
+    elif (25 <= latest_rsi <= 75) and (previous_4_rsi_mean > latest_rsi):
+        signal = "sprzedaj"
+    elif (45 <= latest_rsi <= 55) and (45 <= previous_4_rsi_mean <= 55):
         signal = "neutralny"
+    elif latest_rsi > 75:  # rynek wykupiony
+        signal = "neutralny"
+    elif latest_rsi < 25:  # rynek wyprzedany
+        signal = "neutralny"
+    else:
+        signal = "neutralny"  # dla przypadków granicznych
 
     return rsi, signal, latest_rsi
 
 
 def calculate_stochastic(df, k_period=14, d_period=3):
-    """Stochastic Oscillator"""
+    """Stochastic Oscillator z poprawioną logiką sygnałów"""
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -52,19 +70,34 @@ def calculate_stochastic(df, k_period=14, d_period=3):
     k_percent = 100 * ((close - lowest_low) / (highest_high - lowest_low))
     d_percent = k_percent.rolling(window=d_period).mean()
 
-    # Ocena
+    # Ocena według nowych kryteriów
     latest_k = k_percent.iloc[-1]
     latest_d = d_percent.iloc[-1]
 
-    if latest_k > 80 and latest_d > 80:
-        signal = "sprzedaj"
-    elif latest_k < 20 and latest_d < 20:
+    # Sprawdzenie czy mamy wystarczająco danych do obliczenia średniej z 4 poprzednich wartości
+    if len(k_percent) >= 5:
+        # Średnia z czterech poprzednich wartości STS (k_percent)
+        avg_4_previous = k_percent.iloc[-5:-1].mean()
+    else:
+        # Jeśli nie ma wystarczająco danych, zwracamy neutralny sygnał
+        signal = "neutralny"
+        return k_percent, d_percent, signal, latest_k, latest_d
+
+    # Logika sygnałów według nowych kryteriów
+    if (20 <= latest_k <= 80) and (avg_4_previous < latest_k):
         signal = "kupuj"
+    elif (20 <= latest_k <= 80) and (avg_4_previous > latest_k):
+        signal = "sprzedaj"
+    elif (45 <= latest_k <= 55) and (45 <= avg_4_previous <= 55):
+        signal = "neutralny"
+    elif latest_k > 80:  # rynek wykupiony
+        signal = "neutralny"
+    elif latest_k < 20:  # rynek wyprzedany
+        signal = "neutralny"
     else:
         signal = "neutralny"
 
     return k_percent, d_percent, signal, latest_k, latest_d
-
 
 def calculate_macd(df, fast=12, slow=26, signal_period=9):
     """MACD - Moving Average Convergence Divergence"""
@@ -117,7 +150,7 @@ def calculate_trix(df, period=14, signal_period=9):
 
 
 def calculate_williams_r(df, period=10):
-    """Williams %R"""
+    """Williams %R z poprawioną logiką sygnałów"""
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -127,12 +160,29 @@ def calculate_williams_r(df, period=10):
 
     williams_r = -100 * ((highest_high - close) / (highest_high - lowest_low))
 
-    # Ocena
+    # Pobierz aktualną wartość %R
     latest_wr = williams_r.iloc[-1]
-    if latest_wr > -20:
-        signal = "sprzedaj"
-    elif latest_wr < -80:
-        signal = "kupuj"
+
+    # Oblicz średnią z czterech poprzednich wartości %R
+    if len(williams_r) >= 5:  # Potrzebujemy przynajmniej 5 wartości (4 poprzednie + aktualna)
+        avg_prev_4 = williams_r.iloc[-5:-1].mean()
+    else:
+        avg_prev_4 = None
+
+    # Logika sygnałów zgodnie z nowymi wymaganiami
+    if avg_prev_4 is not None and -80 <= latest_wr <= -20:
+        if avg_prev_4 > latest_wr:
+            signal = "sprzedaj"
+        elif avg_prev_4 < latest_wr:
+            signal = "kupuj"
+        else:
+            signal = "neutralny"
+    elif -55 <= latest_wr <= -45 and (avg_prev_4 is None or -55 <= avg_prev_4 <= -45):
+        signal = "neutralny"
+    elif latest_wr > -20:  # rynek wykupiony
+        signal = "neutralny"
+    elif latest_wr < -80:  # rynek wyprzedany
+        signal = "neutralny"
     else:
         signal = "neutralny"
 
@@ -151,17 +201,31 @@ def calculate_cci(df, period=14):
 
     cci = (typical_price - sma) / (0.015 * mad)
 
-    # Ocena
+    # Ocena sygnału
     latest_cci = cci.iloc[-1]
-    if latest_cci > 100:
-        signal = "sprzedaj"
-    elif latest_cci < -100:
+
+    # Sprawdzenie czy mamy wystarczającą liczbę wartości do obliczenia średniej z 4 poprzednich
+    if len(cci) >= 5:
+        prev_4_avg = cci.iloc[-5:-1].mean()  # Średnia z 4 poprzednich wartości (bez aktualnej)
+    else:
+        # Jeśli nie mamy wystarczających danych, używamy dostępnych wartości
+        prev_4_avg = cci.iloc[:-1].mean() if len(cci) > 1 else latest_cci
+
+    # Logika sygnałów
+    if (-200 <= latest_cci <= 200) and (prev_4_avg < latest_cci):
         signal = "kupuj"
+    elif (-200 <= latest_cci <= 200) and (prev_4_avg > latest_cci):
+        signal = "sprzedaj"
+    elif (-50 <= latest_cci <= 50) and (-50 <= prev_4_avg <= 50):
+        signal = "neutralny"
+    elif latest_cci > 200:
+        signal = "neutralny"  # rynek wykupiony
+    elif latest_cci < -200:
+        signal = "neutralny"  # rynek wyprzedany
     else:
         signal = "neutralny"
 
     return cci, signal, latest_cci
-
 
 def calculate_roc(df, period=15):
     """Rate of Change"""
@@ -170,9 +234,9 @@ def calculate_roc(df, period=15):
 
     # Ocena
     latest_roc = roc.iloc[-1]
-    if latest_roc > 5:
+    if latest_roc > 0:
         signal = "kupuj"
-    elif latest_roc < -5:
+    elif latest_roc < 0:
         signal = "sprzedaj"
     else:
         signal = "neutralny"
@@ -181,7 +245,7 @@ def calculate_roc(df, period=15):
 
 
 def calculate_ultimate_oscillator(df, period1=7, period2=14, period3=28):
-    """Ultimate Oscillator"""
+    """Ultimate Oscillator z ulepszonymi sygnałami"""
     high = df['High']
     low = df['Low']
     close = df['Close']
@@ -201,12 +265,23 @@ def calculate_ultimate_oscillator(df, period1=7, period2=14, period3=28):
 
     ult_osc = 100 * ((4 * (bp_sum1 / tr_sum1)) + (2 * (bp_sum2 / tr_sum2)) + (bp_sum3 / tr_sum3)) / 7
 
-    # Ocena
+    # Ocena według nowych kryteriów
     latest_ult = ult_osc.iloc[-1]
-    if latest_ult > 70:
-        signal = "sprzedaj"
-    elif latest_ult < 30:
+
+    # Sprawdź czy mamy wystarczająco danych do obliczenia średniej z 4 poprzednich wartości
+    if len(ult_osc) < 5:
+        return ult_osc, "brak_danych", latest_ult
+
+    # Średnia z 4 poprzednich wartości
+    prev_4_avg = ult_osc.iloc[-5:-1].mean()
+
+    # Logika sygnałów
+    if 30 <= latest_ult <= 70 and prev_4_avg < latest_ult:
         signal = "kupuj"
+    elif 30 <= latest_ult <= 70 and prev_4_avg > latest_ult:
+        signal = "sprzedaj"
+    elif (45 <= latest_ult <= 55 and 45 <= prev_4_avg <= 55) or latest_ult > 70 or latest_ult < 30:
+        signal = "neutralny"
     else:
         signal = "neutralny"
 
@@ -252,14 +327,32 @@ def calculate_mfi(df, period=14):
     money_ratio = positive_mf_sum / negative_mf_sum
     mfi = 100 - (100 / (1 + money_ratio))
 
-    # Ocena
+    # Ocena według nowych kryteriów
     latest_mfi = mfi.iloc[-1]
-    if latest_mfi > 80:
-        signal = "sprzedaj"
-    elif latest_mfi < 20:
-        signal = "kupuj"
+
+    # Obliczenie średniej z czterech poprzednich wartości MFI
+    if len(mfi) >= 5:  # Sprawdzenie czy mamy wystarczająco danych
+        avg_previous_4 = mfi.iloc[-5:-1].mean()  # Średnia z 4 poprzednich wartości (bez aktualnej)
     else:
-        signal = "neutralny"
+        avg_previous_4 = None
+
+    # Logika sygnałów
+    if avg_previous_4 is not None:
+        # Kupuj: MFI w przedziale 25-75 i średnia poprzednich < aktualna
+        if 25 <= latest_mfi <= 75 and avg_previous_4 < latest_mfi:
+            signal = "kupuj"
+        # Sprzedaj: MFI w przedziale 25-75 i średnia poprzednich > aktualna
+        elif 25 <= latest_mfi <= 75 and avg_previous_4 > latest_mfi:
+            signal = "sprzedaj"
+        # Neutralny: różne przypadki
+        elif (45 <= latest_mfi <= 55 and 45 <= avg_previous_4 <= 55) or \
+                latest_mfi > 75 or \
+                latest_mfi < 25:
+            signal = "neutralny"
+        else:
+            signal = "neutralny"  # Domyślnie neutralny dla pozostałych przypadków
+    else:
+        signal = "neutralny"  # Jeśli nie ma wystarczających danych historycznych
 
     return mfi, signal, latest_mfi
 
