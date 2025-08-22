@@ -51,9 +51,9 @@ OFF_HOURS_SLEEP = 30 * 60        # jak giełda zamknięta to dłuższy sleep (ty
 
 # Progi alertów (w procentach)
 DROP_THRESHOLDS = {
-    "czerwony": 7.0,
-    "zolty": 5.0,
-    "zielony": 3.0
+    "czerwony": 10.0,
+    "zolty": 7.0,
+    "zielony": 5.0
 }
 # ----------------------
 
@@ -233,6 +233,7 @@ def check_prices_for_exchange(exchange):
                     msg += f"Wskaźniki dla: <b>{ticker}</b>:\n"
                     msg +=f"Trend: {RATING_LABELS.get(rate)}\n"
                     alerted_types_today[ticker].add(alert_code_s)
+                    #print(getDetailsText(details))
                 ma_results = calculate_moving_averages_signals(df)
                 movingRate = ma_results['overall_summary']['signal']
                 alert_code_m = str(movingRate) + 'm'
