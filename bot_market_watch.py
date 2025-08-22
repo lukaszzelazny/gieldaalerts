@@ -252,48 +252,6 @@ def check_prices_for_exchange(exchange):
     if missing_data_tickers:
         send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
 
-
-# === FUNKCJA POMOCNICZA DO ANALIZY PORTFOLIO ===
-def analyze_portfolio_signals():
-    """
-    Dodatkowa funkcja do wysłania podsumowania sygnałów z całego portfolio
-    """
-    try:
-        # Można wywołać raz dziennie jako podsumowanie
-        summary_msg = "📊 PODSUMOWANIE SYGNAŁÓW TECHNICZNYCH\n\n"
-
-        # Tutaj można dodać logikę zliczającą ile sygnałów każdego typu wystąpiło
-        # i wysłać podsumowanie na koniec dnia
-
-        send_telegram_message(summary_msg)
-    except Exception as e:
-        print(f"Błąd w analyze_portfolio_signals: {e}")
-
-
-# === DODATKOWA FUNKCJA DO SPRAWDZENIA KONKRETNYCH WARUNKÓW ===
-def check_specific_conditions(df, ticker):
-    """
-    Funkcja do sprawdzenia bardziej zaawansowanych warunków technicznych
-    """
-    conditions = {}
-
-    try:
-        # VIX-like indicator (można zastąpić prawdziwym VIX jeśli dostępny)
-        conditions['market_calm'] = True  # Placeholder
-
-        # Sector strength (można dodać porównanie z sektorowym ETF)
-        conditions['sector_strength'] = True  # Placeholder
-
-        # Gap analysis
-        prev_close = df['Close'].iloc[-2]
-        today_open = df['Open'].iloc[-1]
-        gap_percent = ((today_open - prev_close) / prev_close) * 100
-        conditions['gap_up'] = gap_percent > 2
-        conditions['gap_down'] = gap_percent < -2
-
-        return conditions
-    except:
-        return {}
 def main_loop():
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
 
@@ -309,7 +267,7 @@ def main_loop():
         now_ts = time.time()
         any_exchange_open = False
         for ex in set(TICKERS.values()):
-            if 1: #is_exchange_open(ex):
+            if is_exchange_open(ex):
                 any_exchange_open = True
                 # jeżeli minął interwał od ostatniego sprawdzenia tej giełdy
                 if now_ts - last_price_check_ts.get(ex, 0) >= PRICE_CHECK_INTERVAL:
