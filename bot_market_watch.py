@@ -230,14 +230,14 @@ def check_prices_for_exchange(exchange):
                 alert_code_s = str(rate) + 's'
                 msg = ''
                 if alert_code_s not in alerted_types_today[ticker]:
-                    msg += f"Wskaźniki dla: <b>{ticker}</b> to:\n"
+                    msg += f"Wskaźniki dla: <b>{ticker}</b>:\n"
                     msg +=f"Trend: {RATING_LABELS.get(rate)}\n"
                     alerted_types_today[ticker].add(alert_code_s)
                 ma_results = calculate_moving_averages_signals(df)
                 movingRate = ma_results['overall_summary']['signal']
                 alert_code_m = str(movingRate) + 'm'
                 if alert_code_m not in alerted_types_today[ticker]:
-                    msg = msg + f"Wskaźniki dla: <b>{ticker}</b> to:\n" if ticker not in msg else msg
+                    msg = msg + f"Wskaźniki dla: <b>{ticker}</b>:\n" if ticker not in msg else msg
                     msg += f"Krzywe kroczące: {RATING_LABELS.get(movingRate)}"
                     alerted_types_today[ticker].add(alert_code_m)
 
