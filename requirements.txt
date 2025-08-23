@@ -3,3 +3,4 @@ requests
 pytz
 pandas
 dotenv
+python-telegram-bot==13.15

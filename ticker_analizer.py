@@ -482,21 +482,29 @@ def addcount(signal):
 
 
 def getScoreWithDetails(df):
+    RATING_LABELS = {
+        'kupuj': "🟢",
+        'neutralny': "⚪",
+        'sprzedaj': "🔴"
+    }
     results_all = analyze_stock_df(df)
     oscCount = []
     trendCount = []
     details = []
+    table_data = []
     for indtype, results in results_all.items():
         for indicator, data in results.items():
             signal = data['signal']
             value = data['value']
-            printer = f"{indicator:15} | {signal:10} | {value}"
+            label = RATING_LABELS.get(signal, '')
+            printer = f"{indicator:<18} {label:^2} {value}"
             details.append(printer)
 
             if indtype == 'osc':
                 oscCount.append(addcount(signal))
             else:
                 trendCount.append(addcount(signal))
+        #print (details)
 
     trendsRate = sum(trendCount) / len(trendCount)
     oscCountRate = sum(oscCount) / len(oscCount)

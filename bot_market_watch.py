@@ -9,6 +9,9 @@ import pandas as pd
 from ticker_analizer import getScoreWithDetails
 from moving_analizer import calculate_moving_averages_signals
 
+import threading
+from telegram.ext import Updater, CommandHandler
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,6 +20,13 @@ load_dotenv()
 # KONFIGURACJA (dostosuj)
 # ----------------------
 
+RATING_LABELS = {
+    2: "🟢🟢 <b>Mocne kupuj</b>",
+    1: "🟢 <b>Kupuj</b>",
+    0: "⚪ <b>Trzymaj</b>",
+    -1: "🔴 <b>Sprzedaj</b>",
+    -2: "🔴🔴 <b>Mocne sprzedaj</b>",
+}
 
 TOKEN = os.getenv("TG_BOT_TOKEN")      # ustaw w ENV: TG_BOT_TOKEN
 CHAT_ID = os.getenv("TG_CHAT_ID")      # ustaw w ENV: TG_CHAT_ID
@@ -26,6 +36,7 @@ TICKERS_NEWCONNECT = os.getenv("TICKERS_NEWCONNECT", "").split(",") if os.getenv
 TICKERS_NASDAQ = os.getenv("TICKERS_NASDAQ", "").split(",") if os.getenv("TICKERS_NASDAQ") else []
 TICKERS_NYSE = os.getenv("TICKERS_NYSE", "").split(",") if os.getenv("TICKERS_NYSE") else []
 MY_TICKERS = os.getenv("MY_TICKERS", "").split(",") if os.getenv("MY_TICKERS") else []
+OBSERVABLE_TICKERS = os.getenv("OBSERVABLE_TICKERS", "").split(",") if os.getenv("OBSERVABLE_TICKERS") else []
 
 # Łączna lista z info o giełdzie
 ALL_TICKERS = []
@@ -153,7 +164,6 @@ def market_open_watch():
                 last_open_date[ex] = None
             # nie ruszamy jeśli last_open_date == None
 
-
 def alert_color_name(spadek):
     """Zwraca nagłówek alertu wg progów lub None."""
     if spadek >= DROP_THRESHOLDS["czerwony"]:
@@ -174,15 +184,7 @@ def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
             time.sleep(delay)
     raise Exception(f"Nie udało się pobrać danych po {max_retries} próbach")
 
-
 def check_prices_for_exchange(exchange):
-    RATING_LABELS = {
-        2: "🟢🟢 <b>Mocne kupuj</b>",
-        1: "🟢 <b>Kupuj</b>",
-        0: "⚪ <b>Trzymaj</b>",
-        -1: "🔴 <b>Sprzedaj</b>",
-        -2: "🔴🔴 <b>Mocne sprzedaj</b>",
-    }
     global alerted_types_today  # { ticker: set(alert_type) }
     tickers_for_exchange = [t for t, ex in TICKERS.items() if ex == exchange]
     if not tickers_for_exchange:
@@ -225,17 +227,11 @@ def check_prices_for_exchange(exchange):
                 )
                 send_telegram_message(msg)
 
-            if ticker in MY_TICKERS:
-                rate, details = getScoreWithDetails(df)
-                ma_results = calculate_moving_averages_signals(df)
-                movingRate = ma_results['overall_summary']['signal']
-                alert_code_m = str(movingRate) + 'm'
-                alert_code_s = str(rate) + 's'
+            if ticker in MY_TICKERS or ticker in OBSERVABLE_TICKERS:
+                alert_code_m, alert_code_s, msg, _details = getAnalizeMsg(df, ticker)
+
                 sendMessage = (alert_code_s not in alerted_types_today[ticker]
                                or alert_code_m not in alerted_types_today[ticker])
-                msg = f"Wskaźniki dla: <b>{ticker}</b>:\n"
-                msg_s = f"Trend: {RATING_LABELS.get(rate)}\n"
-                msg_m = f"Krzywe kroczące: {RATING_LABELS.get(movingRate)}"
 
                 if alert_code_s not in alerted_types_today[ticker]:
                     alerted_types_today[ticker].add(alert_code_s)
@@ -245,7 +241,6 @@ def check_prices_for_exchange(exchange):
                     alerted_types_today[ticker].add(alert_code_m)
 
                 if sendMessage:
-                    msg = msg + msg_s + msg_m
                     send_telegram_message(msg)
 
 
@@ -255,6 +250,21 @@ def check_prices_for_exchange(exchange):
 
     if missing_data_tickers:
         send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
+
+
+def getAnalizeMsg(df, ticker):
+    rate, details = getScoreWithDetails(df)
+    ma_results = calculate_moving_averages_signals(df)
+    movingRate = ma_results['overall_summary']['signal']
+    alert_code_m = str(movingRate) + 'm'
+    alert_code_s = str(rate) + 's'
+
+    msg = f"Wskaźniki dla: <b>{ticker}</b>:\n"
+    msg_s = f"Trend: {RATING_LABELS.get(rate)}\n"
+    msg_m = f"Krzywe kroczące: {RATING_LABELS.get(movingRate)}"
+    msg = msg + msg_s + msg_m
+    return alert_code_m, alert_code_s, msg, details
+
 
 def main_loop():
     send_telegram_message("🚀 Bot giełdowy wystartował. Będę monitorował otwarcia giełd i ceny tam, gdzie giełdy są otwarte.")
@@ -323,15 +333,48 @@ def test():
 
 
 def getDetailsText(details):
-        # Łączenie elementów tablicy w tekst, każdy w nowej linii
+    # scalanie w jeden string
     msg = "\n".join(str(item) for item in details)
-    msg = f"Szczegóły to \n"+ f"{msg}"
+    # dodanie code blocka
+    msg = "Szczegóły to\n```\n" + msg + "\n```"
     return msg
 
+
+def analiza(update, context):
+    if len(context.args) == 0:
+        update.message.reply_text("Podaj symbol, np. /at NVDA")
+        return
+    ticker = context.args[0]
+    summaryMsg, details = analize(ticker)
+    update.message.reply_text(summaryMsg, parse_mode="HTML")
+    detailsMsg = getDetailsText(details)
+    # print (detailsMsg)
+    update.message.reply_text(detailsMsg, parse_mode="Markdown")
+
+def telegram_loop():
+    updater = Updater(TOKEN, use_context=True)
+    dp = updater.dispatcher
+    dp.add_handler(CommandHandler("at", analiza))
+    updater.start_polling()
+    #updater.idle()
+
+def analize(ticker):
+    try:
+        hist = download_with_retry([ticker])
+        df = hist[ticker]
+    except Exception as e:
+        msg = f"❗ Błąd przy pobieraniu danych dla : {e}"
+        print(msg)
+        send_telegram_message(msg)
+        return
+
+    _alert_code_m, _alert_code_s, msg, details = getAnalizeMsg(df,  ticker)
+    return msg, details
 
 if __name__ == "__main__":
     try:
         #test()
+        threading.Thread(target=telegram_loop, daemon=True).start()
         main_loop()
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
