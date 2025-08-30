@@ -12,6 +12,7 @@ from moving_analizer import calculate_moving_averages_signals
 import threading
 # from telegram.ext import Updater, CommandHandler
 from telegram.ext import Application, CommandHandler
+import multiprocessing
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -385,7 +386,8 @@ def analize(ticker):
 if __name__ == "__main__":
     try:
         #test()
-        threading.Thread(target=telegram_loop, daemon=True).start()
+        bot_process = multiprocessing.Process(target=telegram_loop)
+        bot_process.start()
         main_loop()
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
