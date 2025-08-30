@@ -10,7 +10,8 @@ from ticker_analizer import getScoreWithDetails
 from moving_analizer import calculate_moving_averages_signals
 
 import threading
-from telegram.ext import Updater, CommandHandler
+# from telegram.ext import Updater, CommandHandler
+from telegram.ext import Application, CommandHandler
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -357,6 +358,16 @@ def telegram_loop():
     dp.add_handler(CommandHandler("at", analiza))
     updater.start_polling()
     #updater.idle()
+
+def telegram_loop():
+    # Zastąpienie Updater na Application.builder()
+    application = Application.builder().token(TOKEN).build()
+
+    # Dodanie handlera bezpośrednio do obiektu application
+    application.add_handler(CommandHandler("at", analiza))
+
+    # Uruchomienie bota przy użyciu metody run_polling()
+    application.run_polling()
 
 def analize(ticker):
     try:
