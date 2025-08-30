@@ -352,12 +352,12 @@ def analiza(update, context):
     # print (detailsMsg)
     update.message.reply_text(detailsMsg, parse_mode="Markdown")
 
-def telegram_loop():
-    updater = Updater(TOKEN)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("at", analiza))
-    updater.start_polling()
-    #updater.idle()
+# def telegram_loop():
+#     updater = Updater(TOKEN)
+#     dp = updater.dispatcher
+#     dp.add_handler(CommandHandler("at", analiza))
+#     updater.start_polling()
+#     #updater.idle()
 
 def telegram_loop():
     # Zastąpienie Updater na Application.builder()
