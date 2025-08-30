@@ -22,6 +22,13 @@ load_dotenv()
 # KONFIGURACJA (dostosuj)
 # ----------------------
 
+import logging
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
 RATING_LABELS = {
     2: "🟢🟢 <b>Mocne kupuj</b>",
     1: "🟢 <b>Kupuj</b>",
