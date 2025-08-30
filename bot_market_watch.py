@@ -404,7 +404,7 @@ if __name__ == "__main__":
         # test()
         bot_process = multiprocessing.Process(target=telegram_loop)
         bot_process.start()
-        main_loop()
+        # main_loop()
         bot_process.join()  # Ensure proper cleanup
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
