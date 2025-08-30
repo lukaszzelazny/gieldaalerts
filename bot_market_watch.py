@@ -349,16 +349,16 @@ def getDetailsText(details):
     return msg
 
 
-def analiza(update, context):
-    if len(context.args) == 0:
-        update.message.reply_text("Podaj symbol, np. /at NVDA")
-        return
-    ticker = context.args[0]
-    summaryMsg, details = analize(ticker)
-    update.message.reply_text(summaryMsg, parse_mode="HTML")
-    detailsMsg = getDetailsText(details)
-    # print (detailsMsg)
-    update.message.reply_text(detailsMsg, parse_mode="Markdown")
+# def analiza(update, context):
+#     if len(context.args) == 0:
+#         update.message.reply_text("Podaj symbol, np. /at NVDA")
+#         return
+#     ticker = context.args[0]
+#     summaryMsg, details = analize(ticker)
+#     update.message.reply_text(summaryMsg, parse_mode="HTML")
+#     detailsMsg = getDetailsText(details)
+#     # print (detailsMsg)
+#     update.message.reply_text(detailsMsg, parse_mode="Markdown")
 
 # def telegram_loop():
 #     updater = Updater(TOKEN)
@@ -372,7 +372,7 @@ async def error_handler(update, context):
     print(f"Update {update} caused error {context.error}")
 
 
-async def telegram_loop():
+def telegram_loop():
     # Zastąpienie Updater na Application.builder()
     application = Application.builder().token(TOKEN).build()
 
@@ -383,17 +383,7 @@ async def telegram_loop():
     application.add_handler(CommandHandler("at", analyze))
 
     # Uruchomienie bota przy użyciu metody run_polling()
-    try:
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-        # Keep the application running
-        await application.updater.idle()
-    except Exception as e:
-        print(f"Error in telegram loop: {e}")
-    finally:
-        await application.stop()
-        await application.shutdown()
+    application.run_polling()
 
 
 async def analyze(update, context):
@@ -412,28 +402,36 @@ async def analyze(update, context):
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla {ticker}: {e}"
         print(msg)
-        await update.message.reply_text(msg)
+        await update.message.reply_text(msg, parse_mode='HTML')
         return
 
     _alert_code_m, _alert_code_s, msg, details = getAnalizeMsg(df, ticker)
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode='HTML')
     if details:
-        await update.message.reply_text(details)
-
-
-def run_telegram_loop():
-    """Wrapper to run async telegram_loop in a new event loop"""
-    asyncio.run(telegram_loop())
+        await update.message.reply_text("\n".join(details), parse_mode="HTML")
 
 
 if __name__ == "__main__":
+    print("Starting Telegram bot...")
     try:
-        # test()
-        bot_process = multiprocessing.Process(target=run_telegram_loop)
+        # Uruchom bota w osobnym procesie
+        bot_process = multiprocessing.Process(target=telegram_loop)
         bot_process.start()
-        # main_loop()
-        bot_process.join()  # Ensure proper cleanup
+        print(f"Bot process started with PID: {bot_process.pid}")
+
+        # Teraz uruchom główną pętlę w głównym procesie
+        main_loop()
+
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
-        bot_process.terminate()
-        bot_process.join()
+        if bot_process.is_alive():
+            bot_process.terminate()
+            bot_process.join()
+
+# if __name__ == "__main__":
+#     print("Starting Telegram bot...")
+#     try:
+#         telegram_loop()  # Run directly without multiprocessing
+#         main_loop()
+#     except KeyboardInterrupt:
+#         print("Przerwano ręcznie.")
