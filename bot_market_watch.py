@@ -8,7 +8,7 @@ import yfinance as yf
 import pandas as pd
 from ticker_analizer import getScoreWithDetails
 from moving_analizer import calculate_moving_averages_signals
-
+import asyncio
 import threading
 # from telegram.ext import Updater, CommandHandler
 from telegram.ext import Application, CommandHandler
@@ -372,7 +372,7 @@ async def error_handler(update, context):
     print(f"Update {update} caused error {context.error}")
 
 
-def telegram_loop():
+async def telegram_loop():
     # Zastąpienie Updater na Application.builder()
     application = Application.builder().token(TOKEN).build()
 
@@ -383,7 +383,17 @@ def telegram_loop():
     application.add_handler(CommandHandler("at", analyze))
 
     # Uruchomienie bota przy użyciu metody run_polling()
-    application.run_polling()
+    try:
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        # Keep the application running
+        await application.updater.idle()
+    except Exception as e:
+        print(f"Error in telegram loop: {e}")
+    finally:
+        await application.stop()
+        await application.shutdown()
 
 
 async def analyze(update, context):
@@ -411,12 +421,19 @@ async def analyze(update, context):
         await update.message.reply_text(details)
 
 
+def run_telegram_loop():
+    """Wrapper to run async telegram_loop in a new event loop"""
+    asyncio.run(telegram_loop())
+
+
 if __name__ == "__main__":
     try:
         # test()
-        bot_process = multiprocessing.Process(target=telegram_loop)
+        bot_process = multiprocessing.Process(target=run_telegram_loop)
         bot_process.start()
         # main_loop()
         bot_process.join()  # Ensure proper cleanup
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
+        bot_process.terminate()
+        bot_process.join()
