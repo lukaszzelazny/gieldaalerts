@@ -367,9 +367,10 @@ def analiza(update, context):
 #     updater.start_polling()
 #     #updater.idle()
 
-def error_handler(update, context):
+async def error_handler(update, context):
     """Log Errors caused by Updates."""
     print(f"Update {update} caused error {context.error}")
+
 
 def telegram_loop():
     # Zastąpienie Updater na Application.builder()
@@ -384,20 +385,31 @@ def telegram_loop():
     # Uruchomienie bota przy użyciu metody run_polling()
     application.run_polling()
 
-def analyze(ticker):
+
+async def analyze(update, context):
+    # Extract ticker from command arguments
+    if context.args:
+        ticker = context.args[0]
+    else:
+        await update.message.reply_text("❗ Podaj ticker, np. /at AAPL")
+        return
+
     try:
         hist = download_with_retry([ticker])
         if ticker not in hist:
             raise KeyError(f"Ticker {ticker} not found in historical data.")
         df = hist[ticker]
     except Exception as e:
-        msg = f"❗ Błąd przy pobieraniu danych dla : {e}"
+        msg = f"❗ Błąd przy pobieraniu danych dla {ticker}: {e}"
         print(msg)
-        send_telegram_message(msg)
+        await update.message.reply_text(msg)
         return
 
     _alert_code_m, _alert_code_s, msg, details = getAnalizeMsg(df, ticker)
-    return msg, details
+    await update.message.reply_text(msg)
+    if details:
+        await update.message.reply_text(details)
+
 
 if __name__ == "__main__":
     try:
