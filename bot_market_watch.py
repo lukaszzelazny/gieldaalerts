@@ -8,9 +8,11 @@ import yfinance as yf
 import pandas as pd
 from ticker_analizer import getScoreWithDetails
 from moving_analizer import calculate_moving_averages_signals
-
+import asyncio
 import threading
-from telegram.ext import Updater, CommandHandler
+# from telegram.ext import Updater, CommandHandler
+from telegram.ext import Application, CommandHandler
+import multiprocessing
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -19,6 +21,13 @@ load_dotenv()
 # ----------------------
 # KONFIGURACJA (dostosuj)
 # ----------------------
+
+import logging
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 RATING_LABELS = {
     2: "🟢🟢 <b>Mocne kupuj</b>",
@@ -340,41 +349,89 @@ def getDetailsText(details):
     return msg
 
 
-def analiza(update, context):
-    if len(context.args) == 0:
-        update.message.reply_text("Podaj symbol, np. /at NVDA")
-        return
-    ticker = context.args[0]
-    summaryMsg, details = analize(ticker)
-    update.message.reply_text(summaryMsg, parse_mode="HTML")
-    detailsMsg = getDetailsText(details)
-    # print (detailsMsg)
-    update.message.reply_text(detailsMsg, parse_mode="Markdown")
+# def analiza(update, context):
+#     if len(context.args) == 0:
+#         update.message.reply_text("Podaj symbol, np. /at NVDA")
+#         return
+#     ticker = context.args[0]
+#     summaryMsg, details = analize(ticker)
+#     update.message.reply_text(summaryMsg, parse_mode="HTML")
+#     detailsMsg = getDetailsText(details)
+#     # print (detailsMsg)
+#     update.message.reply_text(detailsMsg, parse_mode="Markdown")
+
+# def telegram_loop():
+#     updater = Updater(TOKEN)
+#     dp = updater.dispatcher
+#     dp.add_handler(CommandHandler("at", analiza))
+#     updater.start_polling()
+#     #updater.idle()
+
+async def error_handler(update, context):
+    """Log Errors caused by Updates."""
+    print(f"Update {update} caused error {context.error}")
+
 
 def telegram_loop():
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("at", analiza))
-    updater.start_polling()
-    #updater.idle()
+    # Zastąpienie Updater na Application.builder()
+    application = Application.builder().token(TOKEN).build()
 
-def analize(ticker):
-    try:
-        hist = download_with_retry([ticker])
-        df = hist[ticker]
-    except Exception as e:
-        msg = f"❗ Błąd przy pobieraniu danych dla : {e}"
-        print(msg)
-        send_telegram_message(msg)
+    # Register error handler
+    application.add_error_handler(error_handler)
+
+    # Dodanie handlera bezpośrednio do obiektu application
+    application.add_handler(CommandHandler("at", analyze))
+
+    # Uruchomienie bota przy użyciu metody run_polling()
+    application.run_polling()
+
+
+async def analyze(update, context):
+    # Extract ticker from command arguments
+    if context.args:
+        ticker = context.args[0]
+    else:
+        await update.message.reply_text("❗ Podaj ticker, np. /at AAPL")
         return
 
-    _alert_code_m, _alert_code_s, msg, details = getAnalizeMsg(df,  ticker)
-    return msg, details
+    try:
+        hist = download_with_retry([ticker])
+        if ticker not in hist:
+            raise KeyError(f"Ticker {ticker} not found in historical data.")
+        df = hist[ticker]
+    except Exception as e:
+        msg = f"❗ Błąd przy pobieraniu danych dla {ticker}: {e}"
+        print(msg)
+        await update.message.reply_text(msg, parse_mode='HTML')
+        return
+
+    _alert_code_m, _alert_code_s, msg, details = getAnalizeMsg(df, ticker)
+    await update.message.reply_text(msg, parse_mode='HTML')
+    if details:
+        await update.message.reply_text("\n".join(details), parse_mode="HTML")
+
 
 if __name__ == "__main__":
+    print("Starting Telegram bot...")
     try:
-        #test()
-        threading.Thread(target=telegram_loop, daemon=True).start()
+        # Uruchom bota w osobnym procesie
+        bot_process = multiprocessing.Process(target=telegram_loop)
+        bot_process.start()
+        print(f"Bot process started with PID: {bot_process.pid}")
+
+        # Teraz uruchom główną pętlę w głównym procesie
         main_loop()
+
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
+        if bot_process.is_alive():
+            bot_process.terminate()
+            bot_process.join()
+
+# if __name__ == "__main__":
+#     print("Starting Telegram bot...")
+#     try:
+#         telegram_loop()  # Run directly without multiprocessing
+#         main_loop()
+#     except KeyboardInterrupt:
+#         print("Przerwano ręcznie.")

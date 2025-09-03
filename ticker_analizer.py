@@ -1,7 +1,14 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import time
+
+RATING_LABELS = {
+    'kupuj': "🟢",
+    'neutralny': "⚪",
+    'sprzedaj': "🔴"
+}
 
 
 def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
@@ -482,11 +489,6 @@ def addcount(signal):
 
 
 def getScoreWithDetails(df):
-    RATING_LABELS = {
-        'kupuj': "🟢",
-        'neutralny': "⚪",
-        'sprzedaj': "🔴"
-    }
     results_all = analyze_stock_df(df)
     oscCount = []
     trendCount = []
