@@ -47,6 +47,8 @@ TICKERS_NYSE = os.getenv("TICKERS_NYSE", "").split(",") if os.getenv("TICKERS_NY
 MY_TICKERS = os.getenv("MY_TICKERS", "").split(",") if os.getenv("MY_TICKERS") else []
 OBSERVABLE_TICKERS = os.getenv("OBSERVABLE_TICKERS", "").split(",") if os.getenv("OBSERVABLE_TICKERS") else []
 
+activeAnalize = False
+
 # Łączna lista z info o giełdzie
 ALL_TICKERS = []
 for t in TICKERS_GPW:
@@ -71,9 +73,9 @@ OFF_HOURS_SLEEP = 30 * 60        # jak giełda zamknięta to dłuższy sleep (ty
 
 # Progi alertów (w procentach)
 DROP_THRESHOLDS = {
-    "czerwony": 10.0,
-    "zolty": 7.0,
-    "zielony": 5.0
+    "czerwony": float(os.getenv("ALERT_THRESHOLD_RED", "10.0")),
+    "zolty": float(os.getenv("ALERT_THRESHOLD_YELLOW", "7.0")),
+    "zielony": float(os.getenv("ALERT_THRESHOLD_GREEN", "5.0"))
 }
 # ----------------------
 
@@ -183,11 +185,45 @@ def alert_color_name(spadek):
         return "🟢 ZIELONY ALERT"
     return None
 
+def download_with_retry_onlyAt(ticker, max_retries=3, delay=2):
+    for attempt in range(max_retries):
+        try:
+            hist = yf.download(
+                [ticker],
+                period="6mo",
+                interval="1d",
+                prepost=False,
+                threads=True,
+                group_by="ticker"
+            )
+            print(f"df={hist[ticker]}")
+            return hist[ticker]
+        except Exception as e:
+            print(f"Próba {attempt + 1} nie powiodła się: {e}")
+            time.sleep(delay)
+    raise Exception(f"AT!!!! Nie udało się pobrać danych po {max_retries} próbach")
+
 def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
     for attempt in range(max_retries):
         try:
-            hist = yf.download(tickers, period=period, group_by="ticker", threads=True)
-            return hist
+            if activeAnalize:
+                histAT = yf.download(tickers, period=period, group_by="ticker", threads=True)
+            else:
+                histAT = None
+                
+            hist = yf.download(
+                tickers,
+                period="5d",
+                interval="1d",
+                prepost=False,
+                threads = True,
+                group_by="ticker"
+            )
+            
+            if hist is None or hist.empty:
+                raise Exception("Otrzymano puste dane z yfinance")
+            
+            return hist, histAT
         except Exception as e:
             print(f"Próba {attempt+1} nie powiodła się: {e}")
             time.sleep(delay)
@@ -202,7 +238,7 @@ def check_prices_for_exchange(exchange):
     missing_data_tickers = []
 
     try:
-        hist = download_with_retry(tickers_for_exchange)
+        hist, histAt = download_with_retry(tickers_for_exchange)
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
         print(msg)
@@ -212,7 +248,12 @@ def check_prices_for_exchange(exchange):
     for ticker in tickers_for_exchange:
         try:
             df = hist[ticker]
-            if df is None or len(df) < 240:
+            if df is None or df.empty:
+                missing_data_tickers.append(ticker)
+                continue
+            
+            if len(df) < 2:
+                print(f"⚠️ Za mało danych dla {ticker}: tylko {len(df)} świec")
                 missing_data_tickers.append(ticker)
                 continue
 
@@ -236,15 +277,14 @@ def check_prices_for_exchange(exchange):
                 )
                 send_telegram_message(msg)
 
-            if ticker in MY_TICKERS or ticker in OBSERVABLE_TICKERS:
-                alert_code_m, alert_code_s, msg, _details = getAnalizeMsg(df, ticker)
+            if (ticker in MY_TICKERS or ticker in OBSERVABLE_TICKERS) and activeAnalize:
+                alert_code_m, alert_code_s, msg, _details = getAnalizeMsg(histAt[ticker], ticker)
 
                 sendMessage = (alert_code_s not in alerted_types_today[ticker]
                                or alert_code_m not in alerted_types_today[ticker])
 
                 if alert_code_s not in alerted_types_today[ticker]:
                     alerted_types_today[ticker].add(alert_code_s)
-                    #print(getDetailsText(details))
 
                 if alert_code_m not in alerted_types_today[ticker]:
                     alerted_types_today[ticker].add(alert_code_m)
@@ -349,45 +389,110 @@ def getDetailsText(details):
     return msg
 
 
-# def analiza(update, context):
-#     if len(context.args) == 0:
-#         update.message.reply_text("Podaj symbol, np. /at NVDA")
-#         return
-#     ticker = context.args[0]
-#     summaryMsg, details = analize(ticker)
-#     update.message.reply_text(summaryMsg, parse_mode="HTML")
-#     detailsMsg = getDetailsText(details)
-#     # print (detailsMsg)
-#     update.message.reply_text(detailsMsg, parse_mode="Markdown")
-
-# def telegram_loop():
-#     updater = Updater(TOKEN)
-#     dp = updater.dispatcher
-#     dp.add_handler(CommandHandler("at", analiza))
-#     updater.start_polling()
-#     #updater.idle()
+async def showat_with_memory(update, context):
+    print("=== SHOWAT FUNCTION CALLED ===")  # DEBUG
+    print(f"Update: {update}")  # DEBUG
+    print(f"Context: {context}")  # DEBUG
+    print(f"Context args: {context.args}")  # DEBUG
+    
+    global activeAnalize
+    """
+    Wersja z przechowywaniem stanu w pamięci
+    """
+    
+    # Sprawdź czy to w ogóle działa
+    try:
+        await update.message.reply_text("🔧 DEBUG: Funkcja showat została wywołana")
+    except Exception as e:
+        print(f"ERROR sending debug message: {e}")
+        return
+    
+    if not context.args:
+        print("No context args provided")  # DEBUG
+        await update.message.reply_text(
+            "❗ Użyj: /showat enable lub /showat disable", 
+            parse_mode='HTML'
+        )
+        return
+    
+    command = context.args[0].lower()
+    print(f"Command received: '{command}'")  # DEBUG
+    
+    if command == "enable":
+        activeAnalize = True
+        print(f"Setting activeAnalize to True. Current value: {activeAnalize}")
+        try:
+            await update.message.reply_text(
+                "✅ Automatyczne analizy techniczne zostały <b>włączone</b>.",
+                parse_mode='HTML'
+            )
+            print("Enable message sent successfully")
+        except Exception as e:
+            print(f"ERROR sending enable message: {e}")
+        
+    elif command == "disable":
+        activeAnalize = False
+        print(f"Setting activeAnalize to False. Current value: {activeAnalize}")
+        try:
+            await update.message.reply_text(
+                "❌ Automatyczne analizy techniczne zostały <b>wyłączone</b>.",
+                parse_mode='HTML'
+            )
+            print("Disable message sent successfully")
+        except Exception as e:
+            print(f"ERROR sending disable message: {e}")
+        
+    else:
+        print(f"Invalid command: '{command}'")
+        try:
+            await update.message.reply_text(
+                "❗ Nieprawidłowa opcja. Użyj: /showat enable lub /showat disable",
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            print(f"ERROR sending invalid command message: {e}")
+    
+    print("=== SHOWAT FUNCTION FINISHED ===")
 
 async def error_handler(update, context):
     """Log Errors caused by Updates."""
-    print(f"Update {update} caused error {context.error}")
-
+    print(f"ERROR HANDLER: Update {update} caused error {context.error}")
+    import traceback
+    traceback.print_exc()
 
 def telegram_loop():
-    # Zastąpienie Updater na Application.builder()
-    application = Application.builder().token(TOKEN).build()
+    print("=== STARTING TELEGRAM LOOP ===")
+    
+    # Sprawdź czy TOKEN istnieje
+    try:
+        print(f"TOKEN defined: {TOKEN}")
+    except NameError:
+        print("ERROR: TOKEN not defined!")
+        return
+    
+    try:
+        # Zastąpienie Updater na Application.builder()
+        application = Application.builder().token(TOKEN).build()
+        print("Application created successfully")
 
-    # Register error handler
-    application.add_error_handler(error_handler)
+        # Register error handler
+        application.add_error_handler(error_handler)
 
-    # Dodanie handlera bezpośrednio do obiektu application
-    application.add_handler(CommandHandler("at", analyze))
-
-    # Uruchomienie bota przy użyciu metody run_polling()
-    application.run_polling()
-
+        # Dodanie handlera bezpośrednio do obiektu application
+        application.add_handler(CommandHandler("at", analyze))
+        
+        application.add_handler(CommandHandler("showat", showat_with_memory))
+        
+        # Uruchomienie bota przy użyciu metody run_polling()
+        application.run_polling()
+        
+    except Exception as e:
+        print(f"ERROR in telegram_loop: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def analyze(update, context):
-    # Extract ticker from command arguments
+        
     if context.args:
         ticker = context.args[0]
     else:
@@ -395,10 +500,10 @@ async def analyze(update, context):
         return
 
     try:
-        hist = download_with_retry([ticker])
-        if ticker not in hist:
-            raise KeyError(f"Ticker {ticker} not found in historical data.")
-        df = hist[ticker]
+        df = download_with_retry_onlyAt(ticker)
+        # if ticker not in hist:
+        #     raise KeyError(f"Ticker {ticker} not found in historical data.")
+        # df = hist[ticker]
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla {ticker}: {e}"
         print(msg)
@@ -410,28 +515,29 @@ async def analyze(update, context):
     if details:
         await update.message.reply_text("\n".join(details), parse_mode="HTML")
 
-
+# Test czy multiprocessing nie blokuje
 if __name__ == "__main__":
-    print("Starting Telegram bot...")
+    print("=== MAIN STARTING ===")
+    print("Starting Telegram bot...!!!")
+    
+    # Test bez multiprocessing - uruchom bezpośrednio
+    # telegram_loop()  # ODKOMENTUJ TO ŻEBY TESTOWAĆ BEZ MULTIPROCESSING
+    
+    # Lub z multiprocessing:
     try:
-        # Uruchom bota w osobnym procesie
+        import multiprocessing
         bot_process = multiprocessing.Process(target=telegram_loop)
         bot_process.start()
         print(f"Bot process started with PID: {bot_process.pid}")
 
-        # Teraz uruchom główną pętlę w głównym procesie
-        main_loop()
+        # Sprawdź czy main_loop istnieje
+        print("Starting main loop process...")
+        main_process = multiprocessing.Process(target=main_loop)
+        main_process.start()
+        print(f"Main loop process started with PID: {main_process.pid}")
 
     except KeyboardInterrupt:
         print("Przerwano ręcznie.")
-        if bot_process.is_alive():
+        if 'bot_process' in locals() and bot_process.is_alive():
             bot_process.terminate()
             bot_process.join()
-
-# if __name__ == "__main__":
-#     print("Starting Telegram bot...")
-#     try:
-#         telegram_loop()  # Run directly without multiprocessing
-#         main_loop()
-#     except KeyboardInterrupt:
-#         print("Przerwano ręcznie.")
