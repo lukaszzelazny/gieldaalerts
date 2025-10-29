@@ -203,31 +203,48 @@ def download_with_retry_onlyAt(ticker, max_retries=3, delay=2):
             time.sleep(delay)
     raise Exception(f"AT!!!! Nie udało się pobrać danych po {max_retries} próbach")
 
-def download_with_retry(tickers, period="1y", max_retries=3, delay=2):
+def download_with_retry(tickers, max_retries=3, delay=2):
+    """
+    Pobiera 2 rodzaje danych:
+    1. hist_daily - wczorajsze zamknięcie (punkt odniesienia)
+    2. hist_realtime - aktualne ceny (świece 5-minutowe)
+    """
     for attempt in range(max_retries):
         try:
-            if activeAnalize:
-                histAT = yf.download(tickers, period=period, group_by="ticker", threads=True)
-            else:
-                histAT = None
-                
-            hist = yf.download(
+            # 1. Wczorajsze zamknięcie (punkt odniesienia dla alertów)
+            hist_daily = yf.download(
                 tickers,
                 period="5d",
                 interval="1d",
                 prepost=False,
-                threads = True,
+                threads=True,
                 group_by="ticker"
             )
             
-            if hist is None or hist.empty:
-                raise Exception("Otrzymano puste dane z yfinance")
+            # 2. Aktualne ceny real-time (świece 5-minutowe)
+            hist_realtime = yf.download(
+                tickers,
+                period="1d",
+                interval="5m",
+                prepost=False,
+                threads=True,
+                group_by="ticker"
+            )
             
-            return hist, histAT
+            if hist_daily is None or hist_daily.empty:
+                raise Exception("Otrzymano puste dane dzienne z yfinance")
+            
+            if hist_realtime is None or hist_realtime.empty:
+                raise Exception("Otrzymano puste dane real-time z yfinance")
+            
+            return hist_daily, hist_realtime
+            
         except Exception as e:
             print(f"Próba {attempt+1} nie powiodła się: {e}")
             time.sleep(delay)
+    
     raise Exception(f"Nie udało się pobrać danych po {max_retries} próbach")
+
 
 def check_prices_for_exchange(exchange):
     global alerted_types_today  # { ticker: set(alert_type) }
@@ -238,7 +255,7 @@ def check_prices_for_exchange(exchange):
     missing_data_tickers = []
 
     try:
-        hist, histAt = download_with_retry(tickers_for_exchange)
+        hist_daily, hist_realtime = download_with_retry(tickers_for_exchange)
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
         print(msg)
@@ -247,59 +264,101 @@ def check_prices_for_exchange(exchange):
 
     for ticker in tickers_for_exchange:
         try:
-            df = hist[ticker]
-            if df is None or df.empty:
+            # Obsługa MultiIndex (wiele tickerów) vs single ticker
+            if isinstance(hist_daily.columns, pd.MultiIndex):
+                df_daily = hist_daily[ticker]
+                df_realtime = hist_realtime[ticker]
+            else:
+                df_daily = hist_daily
+                df_realtime = hist_realtime
+            
+            # Sprawdzenia poprawności danych
+            if df_daily is None or df_daily.empty or df_realtime is None or df_realtime.empty:
                 missing_data_tickers.append(ticker)
                 continue
             
-            if len(df) < 2:
-                print(f"⚠️ Za mało danych dla {ticker}: tylko {len(df)} świec")
+            if len(df_daily) < 1:
+                print(f"⚠️ Za mało danych dziennych dla {ticker}: tylko {len(df_daily)} świec")
+                missing_data_tickers.append(ticker)
+                continue
+            
+            if len(df_realtime) < 1:
+                print(f"⚠️ Za mało danych real-time dla {ticker}: tylko {len(df_realtime)} świec")
                 missing_data_tickers.append(ticker)
                 continue
 
             if ticker not in alerted_types_today:
                 alerted_types_today[ticker] = set()
 
-            # === ORYGINALNY ALERT CENOWY ===
-            prev_close = df['Close'].iloc[-2]
-            current_price = df['Close'].iloc[-1]
+            # === ALERT CENOWY REAL-TIME ===
+            # Poprzednie zamknięcie = ostatni pełny dzień (wczoraj)
+            prev_close = float(df_daily['Close'].iloc[-1])
+            
+            # Aktualna cena = ostatnia świeca 5-minutowa (teraz)
+            current_price = float(df_realtime['Close'].iloc[-1])
+            
+            # Timestamp ostatniej aktualizacji
+            last_update = df_realtime.index[-1]
+            
+            # Oblicz spadek względem wczorajszego zamknięcia
             spadek = ((prev_close - current_price) / prev_close) * 100
 
+            # Debug info
+            print(f"\n[ALERT CHECK] {ticker} @ {last_update.strftime('%H:%M:%S')}:")
+            print(f"  Wczorajsze zamknięcie: {prev_close:.2f}")
+            print(f"  Aktualna cena (real-time): {current_price:.2f}")
+            print(f"  Spadek: {spadek:.2f}%")
+            print(f"  Już wysłane alerty: {alerted_types_today.get(ticker, set())}")
+
             alert_code = alert_color_name(spadek)
+            print(f"  Typ alertu: {alert_code if alert_code else 'brak (poniżej progu)'}")
 
             if alert_code and alert_code not in alerted_types_today[ticker]:
                 alerted_types_today[ticker].add(alert_code)
                 msg = (
                     f"{alert_code}: !!! <b>{ticker}</b> !!!\n"
-                    f"Cena poprzedniego zamknięcia: {prev_close:.2f}\n"
+                    f"Wczorajsze zamknięcie: {prev_close:.2f}\n"
                     f"Aktualna cena: {current_price:.2f}\n"
-                    f"Spadek: {spadek:.2f}%"
+                    f"Spadek: {spadek:.2f}%\n"
+                    f"Czas: {last_update.strftime('%H:%M:%S')}"
                 )
+                print(f"[SENDING ALERT] {msg}")
                 send_telegram_message(msg)
+            else:
+                if alert_code:
+                    print(f"  → Alert NIE wysłany (już był wysłany: {alert_code})")
+                else:
+                    print(f"  → Alert NIE wysłany (spadek {spadek:.2f}% poniżej progu)")
 
+            # === ANALIZA TECHNICZNA (jeśli włączona) ===
             if (ticker in MY_TICKERS or ticker in OBSERVABLE_TICKERS) and activeAnalize:
-                alert_code_m, alert_code_s, msg, _details = getAnalizeMsg(histAt[ticker], ticker)
+                # Pobierz dane specjalnie do analizy (tutaj lub w osobnej funkcji)
+                try:
+                    histAT = download_with_retry_onlyAt(ticker)
+                    alert_code_m, alert_code_s, msg, _details = getAnalizeMsg(histAT, ticker)
 
-                sendMessage = (alert_code_s not in alerted_types_today[ticker]
-                               or alert_code_m not in alerted_types_today[ticker])
+                    sendMessage = (alert_code_s not in alerted_types_today[ticker]
+                                   or alert_code_m not in alerted_types_today[ticker])
 
-                if alert_code_s not in alerted_types_today[ticker]:
-                    alerted_types_today[ticker].add(alert_code_s)
+                    if alert_code_s not in alerted_types_today[ticker]:
+                        alerted_types_today[ticker].add(alert_code_s)
 
-                if alert_code_m not in alerted_types_today[ticker]:
-                    alerted_types_today[ticker].add(alert_code_m)
+                    if alert_code_m not in alerted_types_today[ticker]:
+                        alerted_types_today[ticker].add(alert_code_m)
 
-                if sendMessage:
-                    send_telegram_message(msg)
-
+                    if sendMessage:
+                        send_telegram_message(msg)
+                except Exception as e:
+                    print(f"[ERROR] Błąd analizy technicznej dla {ticker}: {e}")
 
         except Exception as ex:
-            print(f"Błąd dla {ticker}: {ex}")
+            print(f"[ERROR] Błąd dla {ticker}: {ex}")
+            import traceback
+            traceback.print_exc()
             missing_data_tickers.append(ticker)
 
     if missing_data_tickers:
         send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
-
 
 def getAnalizeMsg(df, ticker):
     rate, details = getScoreWithDetails(df)
