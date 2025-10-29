@@ -276,9 +276,10 @@ def check_prices_for_exchange(exchange):
             if df_daily is None or df_daily.empty or df_realtime is None or df_realtime.empty:
                 missing_data_tickers.append(ticker)
                 continue
-            
-            if len(df_daily) < 1:
-                print(f"⚠️ Za mało danych dziennych dla {ticker}: tylko {len(df_daily)} świec")
+
+            # Potrzebujemy minimum 2 świec: ostatnia (dzisiejsza niekompletna) i przedostatnia (wczorajsze zamknięcie)
+            if len(df_daily) < 2:
+                print(f"⚠️ Za mało danych dziennych dla {ticker}: tylko {len(df_daily)} świec (wymagane: 2)")
                 missing_data_tickers.append(ticker)
                 continue
             
@@ -292,8 +293,9 @@ def check_prices_for_exchange(exchange):
 
             # === ALERT CENOWY REAL-TIME ===
             # Poprzednie zamknięcie = ostatni pełny dzień (wczoraj)
-            prev_close = float(df_daily['Close'].iloc[-1])
-            
+            # UWAGA: iloc[-1] to dzisiejsza niekompletna sesja, więc używamy iloc[-2] (wczoraj)
+            prev_close = float(df_daily['Close'].iloc[-2])
+
             # Aktualna cena = ostatnia świeca 5-minutowa (teraz)
             current_price = float(df_realtime['Close'].iloc[-1])
             

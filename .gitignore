@@ -1,1 +1,4 @@
 /.env
+/test_fix.py
+/test_xtb.py
+/.claude/
