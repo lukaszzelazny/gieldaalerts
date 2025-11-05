@@ -207,33 +207,34 @@ def download_with_retry_onlyAt(ticker, max_retries=3, delay=2):
             time.sleep(delay)
     raise Exception(f"AT!!!! Nie udało się pobrać danych po {max_retries} próbach")
 
+
 def get_stooq_single_ticker(ticker):
     """
     Pobiera dane ze Stooq.pl dla pojedynczego tickera.
-    
+
     Args:
         ticker: ticker z .WA (np. 'SCW.WA')
-    
+
     Returns:
         tuple: (ticker, data_dict) lub (ticker, None) w przypadku błędu
     """
     # Usuń .WA dla Stooq
     stooq_ticker = ticker.replace('.WA', '').lower()
-    
+
     url = f"https://stooq.pl/q/l/?s={stooq_ticker}&f=sd2t2ohlcv&h&e=json"
-    
+
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
+
         if 'symbols' in data and len(data['symbols']) > 0:
             symbol_data = data['symbols'][0]
-            
+
             # Sprawdź czy to nie jest błędny ticker (Stooq zwraca symbol taki jaki wysłaliśmy)
             if ',' in symbol_data.get('symbol', ''):
                 return ticker, None
-            
+
             result = {
                 'open': symbol_data.get('open'),
                 'high': symbol_data.get('high'),
@@ -241,19 +242,41 @@ def get_stooq_single_ticker(ticker):
                 'close': symbol_data.get('close'),
                 'volume': symbol_data.get('volume'),
                 'date': symbol_data.get('date'),
-                'time': symbol_data.get('time')
+                'time': symbol_data.get('time'),
+                'prev_close': None  # Domyślnie None
             }
-            
+
             # Sprawdź czy mamy rzeczywiste dane (nie None)
             if result['close'] is not None:
+                # Pobierz dane z poprzedniego dnia
+                current_date = symbol_data.get('date')
+                if current_date:
+                    try:
+                        # Konwertuj datę do formatu YYYYMMDD
+                        from datetime import datetime, timedelta
+                        date_obj = datetime.strptime(current_date, '%Y%m%d')
+                        prev_date = date_obj - timedelta(days=1)
+                        prev_date_str = prev_date.strftime('%Y%m%d')
+
+                        # Pobierz dane z poprzedniego dnia
+                        prev_url = f"https://stooq.pl/q/l/?s={stooq_ticker}&d={prev_date_str}&h&e=json"
+                        prev_response = requests.get(prev_url, timeout=10)
+                        prev_response.raise_for_status()
+                        prev_data = prev_response.json()
+
+                        if 'symbols' in prev_data and len(prev_data['symbols']) > 0:
+                            prev_symbol_data = prev_data['symbols'][0]
+                            result['prev_close'] = prev_symbol_data.get('close')
+                    except Exception as e:
+                        print(f"⚠️ Nie udało się pobrać prev_close dla {ticker}: {e}")
+
                 return ticker, result
-        
+
         return ticker, None
-        
+
     except Exception as e:
         print(f"⚠️ Błąd pobierania {ticker} ze Stooq: {e}")
         return ticker, None
-
 
 def get_stooq_data(tickers, max_workers=5):
     """
@@ -495,17 +518,10 @@ def check_prices_for_exchange(exchange):
                     print(f"📊 {ticker}: Yahoo brak real-time, używam Stooq")
                     stooq_ticker_data = stooq_data[ticker]
                     current_price = stooq_ticker_data['close']
+                    prev_close = stooq_ticker_data['prev_close']
                     
                     # Pobierz previous close z Yahoo daily (jeśli mamy)
-                    if len(df_daily) >= 2:
-                        prev_close = float(df_daily['Close'].iloc[-2])
-                        
-                        # Sprawdź czy prev_close nie jest NaN
-                        if pd.isna(prev_close):
-                            print(f"  ⚠️ Wczorajsze zamknięcie jest NaN - pomijam {ticker}")
-                            missing_data_tickers.append(ticker)
-                            continue
-                        
+                    if prev_close:
                         spadek = ((prev_close - current_price) / prev_close) * 100
                         
                         last_update_str = f"{stooq_ticker_data['date']} {stooq_ticker_data['time']}"
@@ -531,7 +547,9 @@ def check_prices_for_exchange(exchange):
                             )
                             print(f"[SENDING ALERT - STOOQ] {msg}")
                             send_telegram_message(msg)
-                    
+                    else:
+                        print(f"  ⚠️ Wczorajsze zamknięcie jest NaN - pomijam {ticker}")
+
                     continue
                 else:
                     missing_data_tickers.append(ticker)

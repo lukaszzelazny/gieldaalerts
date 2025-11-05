@@ -4,10 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2a1366d5-d463-4bdf-8d8d-fb0bfa3ccaaa" name="Changes" comment="poprawa braku powiadomienia o alercie">
+    <list default="true" id="2a1366d5-d463-4bdf-8d8d-fb0bfa3ccaaa" name="Changes" comment="stoq">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/bot_market_watch.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot_market_watch.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run.sh" beforeDir="false" afterPath="$PROJECT_DIR$/run.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -38,7 +37,7 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.bot_market_watch.executor": "Debug",
+    "Python.bot_market_watch.executor": "Run",
     "Python.financial_report.executor": "Run",
     "Python.test.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
@@ -77,27 +76,21 @@
       <option name="project" value="LOCAL" />
       <updated>1761732197255</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="stoq">
+      <option name="closed" value="true" />
+      <created>1762345346883</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1762345346883</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
+    <option name="CHECK_NEW_TODO" value="false" />
     <MESSAGE value="poprawa braku powiadomienia o alercie" />
-    <option name="LAST_COMMIT_MESSAGE" value="poprawa braku powiadomienia o alercie" />
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/bot_market_watch.py</url>
-          <line>418</line>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/app/bot_market_watch.py</url>
-          <line>431</line>
-          <option name="timeStamp" value="3" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
+    <MESSAGE value="stoq" />
+    <option name="LAST_COMMIT_MESSAGE" value="stoq" />
   </component>
 </project>
