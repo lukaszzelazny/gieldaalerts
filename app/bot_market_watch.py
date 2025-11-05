@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import time
 import requests
 from datetime import datetime, time as dt_time, date
@@ -25,9 +26,13 @@ load_dotenv()
 import logging
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
+# logging.getLogger("httpx").setLevel(logging.WARNING)
+# logging.getLogger("httpcore").setLevel(logging.WARNING)   # opcjonalnie
+
 
 RATING_LABELS = {
     2: "🟢🟢 <b>Mocne kupuj</b>",
@@ -203,12 +208,98 @@ def download_with_retry_onlyAt(ticker, max_retries=3, delay=2):
             time.sleep(delay)
     raise Exception(f"AT!!!! Nie udało się pobrać danych po {max_retries} próbach")
 
+def get_stooq_single_ticker(ticker):
+    """
+    Pobiera dane ze Stooq.pl dla pojedynczego tickera.
+    
+    Args:
+        ticker: ticker z .WA (np. 'SCW.WA')
+    
+    Returns:
+        tuple: (ticker, data_dict) lub (ticker, None) w przypadku błędu
+    """
+    # Usuń .WA dla Stooq
+    stooq_ticker = ticker.replace('.WA', '').lower()
+    
+    url = f"https://stooq.pl/q/l/?s={stooq_ticker}&f=sd2t2ohlcv&h&e=json"
+    
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'symbols' in data and len(data['symbols']) > 0:
+            symbol_data = data['symbols'][0]
+            
+            # Sprawdź czy to nie jest błędny ticker (Stooq zwraca symbol taki jaki wysłaliśmy)
+            if ',' in symbol_data.get('symbol', ''):
+                return ticker, None
+            
+            result = {
+                'open': symbol_data.get('open'),
+                'high': symbol_data.get('high'),
+                'low': symbol_data.get('low'),
+                'close': symbol_data.get('close'),
+                'volume': symbol_data.get('volume'),
+                'date': symbol_data.get('date'),
+                'time': symbol_data.get('time')
+            }
+            
+            # Sprawdź czy mamy rzeczywiste dane (nie None)
+            if result['close'] is not None:
+                return ticker, result
+        
+        return ticker, None
+        
+    except Exception as e:
+        print(f"⚠️ Błąd pobierania {ticker} ze Stooq: {e}")
+        return ticker, None
+
+
+def get_stooq_data(tickers, max_workers=5):
+    """
+    Pobiera dane ze Stooq.pl dla wielu tickerów (równolegle).
+    
+    Args:
+        tickers: lista tickerów (z .WA)
+        max_workers: maksymalna liczba równoległych requestów
+    
+    Returns:
+        dict: {ticker: {'open': x, 'high': x, 'low': x, 'close': x, 'volume': x, 'date': x, 'time': x}}
+    """
+    result = {}
+    
+    # Pobieranie równoległe dla przyspieszenia
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Uruchom wszystkie requesty
+        future_to_ticker = {
+            executor.submit(get_stooq_single_ticker, ticker): ticker 
+            for ticker in tickers
+        }
+        
+        # Zbierz wyniki
+        for future in as_completed(future_to_ticker):
+            ticker, data = future.result()
+            if data is not None:
+                result[ticker] = data
+                print(f"  ✅ {ticker}: {data['close']} PLN @ {data['time']}")
+            else:
+                print(f"  ❌ {ticker}: brak danych")
+    
+    return result
+
+
 def download_with_retry(tickers, max_retries=3, delay=2):
     """
     Pobiera 2 rodzaje danych:
     1. hist_daily - wczorajsze zamknięcie (punkt odniesienia)
     2. hist_realtime - aktualne ceny (świece 5-minutowe)
+    
+    Dla tickerów bez danych w Yahoo Finance próbuje pobrać ze Stooq.
     """
+    failed_tickers_daily = []
+    failed_tickers_realtime = []
+    
     for attempt in range(max_retries):
         try:
             # 1. Wczorajsze zamknięcie (punkt odniesienia dla alertów)
@@ -218,7 +309,9 @@ def download_with_retry(tickers, max_retries=3, delay=2):
                 interval="1d",
                 prepost=False,
                 threads=True,
-                group_by="ticker"
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False  # Wyłącz progress bar dla czystszych logów
             )
             
             # 2. Aktualne ceny real-time (świece 5-minutowe)
@@ -228,22 +321,91 @@ def download_with_retry(tickers, max_retries=3, delay=2):
                 interval="5m",
                 prepost=False,
                 threads=True,
-                group_by="ticker"
+                group_by="ticker",
+                auto_adjust=True,
+                progress=False
             )
             
             if hist_daily is None or hist_daily.empty:
                 raise Exception("Otrzymano puste dane dzienne z yfinance")
             
-            if hist_realtime is None or hist_realtime.empty:
-                raise Exception("Otrzymano puste dane real-time z yfinance")
+            # Sprawdź które tickery nie mają danych
+            if isinstance(tickers, list) and len(tickers) > 1:
+                # Multi-ticker: sprawdź kolumny
+                available_daily = set()
+                available_realtime = set()
+                
+                if hasattr(hist_daily.columns, 'levels'):
+                    available_daily = set(hist_daily.columns.get_level_values(0))
+                elif not hist_daily.empty:
+                    available_daily = set(tickers)
+                    
+                if hasattr(hist_realtime.columns, 'levels'):
+                    available_realtime = set(hist_realtime.columns.get_level_values(0))
+                elif not hist_realtime.empty:
+                    available_realtime = set(tickers)
+                
+                failed_tickers_daily = [t for t in tickers if t not in available_daily]
+                failed_tickers_realtime = [t for t in tickers if t not in available_realtime]
+                
+                print(f"📊 Yahoo Finance: {len(available_daily)}/{len(tickers)} daily, {len(available_realtime)}/{len(tickers)} realtime")
+                
+                # Próba pobrania brakujących danych ze Stooq
+                if failed_tickers_daily or failed_tickers_realtime:
+                    print(f"🔄 Próba pobrania brakujących danych ze Stooq dla {len(set(failed_tickers_daily + failed_tickers_realtime))} tickerów...")
+                    
+                    # Pobierz dane ze Stooq dla wszystkich brakujących tickerów
+                    all_failed = list(set(failed_tickers_daily + failed_tickers_realtime))
+                    stooq_data = get_stooq_data(all_failed)
+                    
+                    if stooq_data:
+                        print(f"✅ Stooq dostarczył dane dla {len(stooq_data)}/{len(all_failed)} tickerów")
+                        return hist_daily, hist_realtime, stooq_data
+                    else:
+                        print(f"⚠️ Stooq nie dostarczył żadnych danych")
             
-            return hist_daily, hist_realtime
+            # Sprawdź czy mamy JAKIEKOLWIEK dane realtime
+            if hist_realtime is None or hist_realtime.empty:
+                current_time = datetime.now().time()
+                market_open = datetime.strptime("09:00", "%H:%M").time()
+                market_early = datetime.strptime("09:10", "%H:%M").time()
+                
+                # Jeśli jest tuż po otwarciu, to normalne że brak danych
+                if market_open <= current_time <= market_early:
+                    print(f"⏰ Początek sesji - brak danych 5-min jest normalny (próba {attempt+1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        print(f"⏳ Czekam {delay * 2}s na pojawienie się pierwszych świec...")
+                        time.sleep(delay * 2)
+                        continue
+                    else:
+                        # Na ostatniej próbie zwróć dane dzienne + pusty realtime + Stooq
+                        print("⚠️ Używam tylko danych dziennych (brak świec 5-min)")
+                        print("🔄 Próba pobrania danych ze Stooq...")
+                        stooq_data = get_stooq_data(tickers)
+                        return hist_daily, hist_realtime, stooq_data
+                else:
+                    raise Exception("Otrzymano puste dane real-time z yfinance")
+            
+            # Jeśli wszystko OK, zwróć dane (+ puste stooq_data jeśli nie było failów)
+            return hist_daily, hist_realtime, {}
             
         except Exception as e:
-            print(f"Próba {attempt+1} nie powiodła się: {e}")
-            time.sleep(delay)
+            print(f"❌ Próba {attempt+1}/{max_retries} nie powiodła się: {e}")
+            if attempt < max_retries - 1:
+                print(f"⏳ Czekam {delay}s przed kolejną próbą...")
+                time.sleep(delay)
     
-    raise Exception(f"Nie udało się pobrać danych po {max_retries} próbach")
+    # Ostatnia deska ratunku - spróbuj tylko Stooq
+    print("🆘 Ostatnia próba: pobieranie WSZYSTKICH danych ze Stooq...")
+    stooq_data = get_stooq_data(tickers)
+    
+    if stooq_data:
+        print(f"✅ Stooq dostarczył dane awaryjne dla {len(stooq_data)} tickerów")
+        # Zwróć puste DataFrames + dane ze Stooq
+        import pandas as pd
+        return pd.DataFrame(), pd.DataFrame(), stooq_data
+    
+    raise Exception(f"Nie udało się pobrać danych po {max_retries} próbach (Yahoo i Stooq)")
 
 
 def check_prices_for_exchange(exchange):
@@ -255,15 +417,47 @@ def check_prices_for_exchange(exchange):
     missing_data_tickers = []
 
     try:
-        hist_daily, hist_realtime = download_with_retry(tickers_for_exchange)
+        hist_daily, hist_realtime, stooq_data = download_with_retry(tickers_for_exchange)
     except Exception as e:
         msg = f"❗ Błąd przy pobieraniu danych dla giełdy {exchange}: {e}"
         print(msg)
+        print(f"stooq_data: {stooq_data}")
         send_telegram_message(msg)
         return
+    
+    
 
     for ticker in tickers_for_exchange:
         try:
+            # === SPRAWDŹ CZY TICKER MA DANE W YAHOO FINANCE ===
+            has_yahoo_data = False
+            
+            if isinstance(hist_daily.columns, pd.MultiIndex):
+                has_yahoo_data = ticker in hist_daily.columns.get_level_values(0)
+            elif not hist_daily.empty:
+                has_yahoo_data = True
+            
+            # === JEŚLI BRAK DANYCH W YAHOO, UŻYJ STOOQ ===
+            if not has_yahoo_data and ticker in stooq_data:
+                print(f"📊 {ticker}: używam danych ze Stooq (brak w Yahoo)")
+                
+                stooq_ticker_data = stooq_data[ticker]
+                current_price = stooq_ticker_data['close']
+                
+                # Dla Stooq nie mamy historii dziennej, więc pomijamy alerty spadków
+                print(f"  Aktualna cena (Stooq): {current_price:.2f}")
+                print(f"  ⚠️ Brak danych historycznych - pomijam alerty spadków")
+                
+                # Opcjonalnie: możesz wysłać info że ticker jest monitorowany tylko przez Stooq
+                if ticker not in alerted_types_today:
+                    alerted_types_today[ticker] = set()
+                    msg = f"ℹ️ {ticker}: monitorowanie przez Stooq (cena: {current_price:.2f} PLN)"
+                    send_telegram_message(msg)
+                    alerted_types_today[ticker].add('stooq_info')
+                
+                continue  # Przejdź do kolejnego tickera
+            
+            # === NORMALNA OBSŁUGA YAHOO FINANCE ===
             # Obsługa MultiIndex (wiele tickerów) vs single ticker
             if isinstance(hist_daily.columns, pd.MultiIndex):
                 df_daily = hist_daily[ticker]
@@ -273,31 +467,151 @@ def check_prices_for_exchange(exchange):
                 df_realtime = hist_realtime
             
             # Sprawdzenia poprawności danych
-            if df_daily is None or df_daily.empty or df_realtime is None or df_realtime.empty:
-                missing_data_tickers.append(ticker)
-                continue
+            if df_daily is None or df_daily.empty:
+                if ticker in stooq_data:
+                    print(f"📊 {ticker}: Yahoo brak danych dziennych, używam Stooq")
+                    continue
+                else:
+                    missing_data_tickers.append(ticker)
+                    continue
+            
+            if df_realtime is None or df_realtime.empty:
+                if ticker in stooq_data:
+                    print(f"📊 {ticker}: Yahoo brak real-time, używam Stooq")
+                    stooq_ticker_data = stooq_data[ticker]
+                    current_price = stooq_ticker_data['close']
+                    
+                    # Pobierz previous close z Yahoo daily (jeśli mamy)
+                    if len(df_daily) >= 2:
+                        prev_close = float(df_daily['Close'].iloc[-2])
+                        
+                        # Sprawdź czy prev_close nie jest NaN
+                        if pd.isna(prev_close):
+                            print(f"  ⚠️ Wczorajsze zamknięcie jest NaN - pomijam {ticker}")
+                            missing_data_tickers.append(ticker)
+                            continue
+                        
+                        spadek = ((prev_close - current_price) / prev_close) * 100
+                        
+                        last_update_str = f"{stooq_ticker_data['date']} {stooq_ticker_data['time']}"
+                        
+                        print(f"\n[ALERT CHECK - STOOQ] {ticker} @ {last_update_str}:")
+                        print(f"  Wczorajsze zamknięcie: {prev_close:.2f}")
+                        print(f"  Aktualna cena (Stooq): {current_price:.2f}")
+                        print(f"  Spadek: {spadek:.2f}%")
+                        
+                        if ticker not in alerted_types_today:
+                            alerted_types_today[ticker] = set()
+                        
+                        alert_code = alert_color_name(spadek)
+                        
+                        if alert_code and alert_code not in alerted_types_today[ticker]:
+                            alerted_types_today[ticker].add(alert_code)
+                            msg = (
+                                f"{alert_code}: !!! <b>{ticker}</b> !!! [Stooq]\n"
+                                f"Wczorajsze zamknięcie: {prev_close:.2f}\n"
+                                f"Aktualna cena: {current_price:.2f}\n"
+                                f"Spadek: {spadek:.2f}%\n"
+                                f"Czas: {last_update_str}"
+                            )
+                            print(f"[SENDING ALERT - STOOQ] {msg}")
+                            send_telegram_message(msg)
+                    
+                    continue
+                else:
+                    missing_data_tickers.append(ticker)
+                    continue
 
             # Potrzebujemy minimum 2 świec: ostatnia (dzisiejsza niekompletna) i przedostatnia (wczorajsze zamknięcie)
             if len(df_daily) < 2:
                 print(f"⚠️ Za mało danych dziennych dla {ticker}: tylko {len(df_daily)} świec (wymagane: 2)")
-                missing_data_tickers.append(ticker)
-                continue
+                
+                # Sprawdź fallback Stooq
+                if ticker in stooq_data:
+                    print(f"  → Próba użycia Stooq jako zamiennika")
+                    continue
+                else:
+                    missing_data_tickers.append(ticker)
+                    continue
             
             if len(df_realtime) < 1:
                 print(f"⚠️ Za mało danych real-time dla {ticker}: tylko {len(df_realtime)} świec")
-                missing_data_tickers.append(ticker)
-                continue
+                
+                # Sprawdź fallback Stooq
+                if ticker in stooq_data:
+                    print(f"  → Próba użycia Stooq jako zamiennika")
+                    # Użyj logiki Stooq z powyższego bloku
+                    continue
+                else:
+                    missing_data_tickers.append(ticker)
+                    continue
 
             if ticker not in alerted_types_today:
                 alerted_types_today[ticker] = set()
 
-            # === ALERT CENOWY REAL-TIME ===
+            # === ALERT CENOWY REAL-TIME (YAHOO) ===
             # Poprzednie zamknięcie = ostatni pełny dzień (wczoraj)
-            # UWAGA: iloc[-1] to dzisiejsza niekompletna sesja, więc używamy iloc[-2] (wczoraj)
             prev_close = float(df_daily['Close'].iloc[-2])
+            
+            # **KLUCZOWE: Sprawdź czy prev_close nie jest NaN**
+            if pd.isna(prev_close):
+                print(f"\n⚠️ {ticker}: Wczorajsze zamknięcie jest NaN")
+                
+                # Sprawdź czy Stooq ma dane
+                if ticker in stooq_data:
+                    print(f"  → Używam Stooq jako zamiennika")
+                    stooq_ticker_data = stooq_data[ticker]
+                    current_price = stooq_ticker_data['close']
+                    last_update_str = f"{stooq_ticker_data['date']} {stooq_ticker_data['time']}"
+                    
+                    print(f"  Aktualna cena (Stooq): {current_price:.2f}")
+                    print(f"  Czas: {last_update_str}")
+                    print(f"  ⚠️ Brak wczorajszego zamknięcia - pomijam alerty spadków")
+                    continue
+                else:
+                    missing_data_tickers.append(ticker)
+                    continue
 
             # Aktualna cena = ostatnia świeca 5-minutowa (teraz)
             current_price = float(df_realtime['Close'].iloc[-1])
+            
+            # **KLUCZOWE: Sprawdź czy current_price nie jest NaN**
+            if pd.isna(current_price):
+                print(f"\n⚠️ {ticker}: Aktualna cena jest NaN w Yahoo")
+                print(f"\n⚠️  stooq_data: {stooq_data}")
+                tickerSq = ticker.replace('.WA', '')
+                # Sprawdź czy Stooq ma dane
+                if tickerSq in stooq_data:
+                    print(f"  → Używam Stooq jako zamiennika")
+                    stooq_ticker_data = stooq_data[tickerSq]
+                    current_price = stooq_ticker_data['close']
+                    spadek = ((prev_close - current_price) / prev_close) * 100
+                    
+                    last_update_str = f"{stooq_ticker_data['date']} {stooq_ticker_data['time']}"
+                    
+                    print(f"\n[ALERT CHECK - HYBRID] {ticker} @ {last_update_str}:")
+                    print(f"  Wczorajsze zamknięcie (Yahoo): {prev_close:.2f}")
+                    print(f"  Aktualna cena (Stooq): {current_price:.2f}")
+                    print(f"  Spadek: {spadek:.2f}%")
+                    
+                    alert_code = alert_color_name(spadek)
+                    
+                    if alert_code and alert_code not in alerted_types_today[ticker]:
+                        alerted_types_today[ticker].add(alert_code)
+                        msg = (
+                            f"{alert_code}: !!! <b>{ticker}</b> !!! [Yahoo+Stooq]\n"
+                            f"Wczorajsze zamknięcie: {prev_close:.2f}\n"
+                            f"Aktualna cena: {current_price:.2f}\n"
+                            f"Spadek: {spadek:.2f}%\n"
+                            f"Czas: {last_update_str}"
+                        )
+                        print(f"[SENDING ALERT - HYBRID] {msg}")
+                        send_telegram_message(msg)
+                    
+                    continue
+                else:
+                    missing_data_tickers.append(ticker)
+                    continue
             
             # Timestamp ostatniej aktualizacji
             last_update = df_realtime.index[-1]
@@ -334,7 +648,6 @@ def check_prices_for_exchange(exchange):
 
             # === ANALIZA TECHNICZNA (jeśli włączona) ===
             if (ticker in MY_TICKERS or ticker in OBSERVABLE_TICKERS) and activeAnalize:
-                # Pobierz dane specjalnie do analizy (tutaj lub w osobnej funkcji)
                 try:
                     histAT = download_with_retry_onlyAt(ticker)
                     alert_code_m, alert_code_s, msg, _details = getAnalizeMsg(histAT, ticker)
@@ -361,7 +674,7 @@ def check_prices_for_exchange(exchange):
 
     if missing_data_tickers:
         send_telegram_message(f"❗ Brak danych dla: {', '.join(missing_data_tickers)}")
-
+        
 def getAnalizeMsg(df, ticker):
     rate, details = getScoreWithDetails(df)
     ma_results = calculate_moving_averages_signals(df)

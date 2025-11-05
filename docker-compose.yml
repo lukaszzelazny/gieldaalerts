@@ -2,6 +2,7 @@ version: "3.8"
 
 services:
   gieldaalerts:
+    container_name: gieldaalerts
     image: gieldaalerts:latest
     ports:
       - "8000:8000"
