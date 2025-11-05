@@ -94,6 +94,7 @@ last_open_date = { "GPW": None, "NYSE": None, "NASDAQ": None }
 last_price_check_ts = { "GPW": 0, "NYSE": 0, "NASDAQ": 0 }
 
 alerted_types_today = {}
+previous_close_cache = {}  # { ticker: {"date": date, "price": float} }
 
 def load_tickers():
     tickers = {}
@@ -213,8 +214,12 @@ def get_stooq_single_ticker(ticker):
         tuple: (ticker, data_dict) lub (ticker, None) w przypadku błędu
     """
     # Usuń .WA dla Stooq
-    stooq_ticker = ticker.replace('.WA', '').lower()
-
+    if '.WA' in ticker:
+        stooq_ticker = ticker.replace('.WA', '').lower()
+    else:
+        stooq_ticker = f'{ticker}.US'.lower()
+    
+    
     url = f"https://stooq.pl/q/l/?s={stooq_ticker}&f=sd2t2ohlcv&h&e=json"
 
     try:
@@ -313,6 +318,42 @@ def get_stooq_data(tickers, max_workers=5):
     
     return result
 
+def get_previous_close(ticker_symbol):
+    """
+    Pobiera oficjalną cenę zamknięcia z poprzedniej sesji.
+    Cache'uje wynik na dany dzień, żeby nie odpytywać wielokrotnie.
+    """
+    today = date.today()
+    
+    # Sprawdź cache
+    if ticker_symbol in previous_close_cache:
+        cached = previous_close_cache[ticker_symbol]
+        if cached["date"] == today:
+            print(f"  [CACHE HIT] {ticker_symbol} previousClose: {cached['price']:.2f}")
+            return cached["price"]
+    
+    # Pobierz z API
+    try:
+        ticker = yf.Ticker(ticker_symbol)
+        prev_close = ticker.info.get('previousClose')
+        
+        if prev_close:
+            price = float(prev_close)
+            # Zapisz w cache
+            previous_close_cache[ticker_symbol] = {
+                "date": today,
+                "price": price
+            }
+            print(f"  [API] {ticker_symbol} previousClose: {price:.2f}")
+            return price
+        else:
+            print(f"  [API] {ticker_symbol} - brak previousClose w info")
+            
+    except Exception as e:
+        print(f"  [ERROR] Błąd pobierania previousClose dla {ticker_symbol}: {e}")
+    
+    # Fallback - zwróć None, użyjemy danych historycznych
+    return None
 
 def download_with_retry(tickers, max_retries=3, delay=2):
     """
@@ -567,7 +608,7 @@ def check_prices_for_exchange(exchange):
 
             # === ALERT CENOWY REAL-TIME (YAHOO) ===
             # Poprzednie zamknięcie = ostatni pełny dzień (wczoraj)
-            prev_close = float(df_daily['Close'].iloc[-1])
+            prev_close = get_previous_close(ticker) #float(df_daily['Close'].iloc[-1])
             
             # **KLUCZOWE: Sprawdź czy prev_close nie jest NaN**
             if pd.isna(prev_close):
