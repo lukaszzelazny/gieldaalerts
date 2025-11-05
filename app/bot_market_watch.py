@@ -567,7 +567,7 @@ def check_prices_for_exchange(exchange):
 
             # === ALERT CENOWY REAL-TIME (YAHOO) ===
             # Poprzednie zamknięcie = ostatni pełny dzień (wczoraj)
-            prev_close = float(df_daily['Close'].iloc[-2])
+            prev_close = float(df_daily['Close'].iloc[-1])
             
             # **KLUCZOWE: Sprawdź czy prev_close nie jest NaN**
             if pd.isna(prev_close):
@@ -932,5 +932,5 @@ if __name__ == "__main__":
             bot_process.join()
 
 #windows
-if __name__ == "__main__":
-    main_loop()
+# if __name__ == "__main__":
+#     main_loop()
