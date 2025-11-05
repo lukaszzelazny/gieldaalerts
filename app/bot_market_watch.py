@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import os
 import sys
+import io
+import csv
 import time
 import requests
-from datetime import datetime, time as dt_time, date
+from datetime import datetime, time as dt_time, date, timedelta
 import pytz
 import yfinance as yf
 import pandas as pd
@@ -243,20 +245,29 @@ def get_stooq_single_ticker(ticker):
                 if current_date:
                     try:
                         # Konwertuj datę do formatu YYYYMMDD
-                        from datetime import datetime, timedelta
-                        date_obj = datetime.strptime(current_date, '%Y%m%d')
+
+                        date_obj = datetime.strptime(current_date, '%Y-%m-%d')
                         prev_date = date_obj - timedelta(days=1)
                         prev_date_str = prev_date.strftime('%Y%m%d')
 
-                        # Pobierz dane z poprzedniego dnia
-                        prev_url = f"https://stooq.pl/q/l/?s={stooq_ticker}&d={prev_date_str}&h&e=json"
+                        # Pobierz dane historyczne z poprzedniego dnia (format CSV)
+                        prev_url = f"https://stooq.pl/q/d/l/?s={stooq_ticker}&f={prev_date_str}&t={prev_date_str}&i=d"
                         prev_response = requests.get(prev_url, timeout=10)
                         prev_response.raise_for_status()
-                        prev_data = prev_response.json()
 
-                        if 'symbols' in prev_data and len(prev_data['symbols']) > 0:
-                            prev_symbol_data = prev_data['symbols'][0]
-                            result['prev_close'] = prev_symbol_data.get('close')
+                        # Parsuj CSV
+                        csv_content = prev_response.text
+                        csv_reader = csv.DictReader(io.StringIO(csv_content))
+
+                        for row in csv_reader:
+                            # Pobierz wartość zamknięcia (kolumna "Zamkniecie")
+                            if 'Zamkniecie' in row:
+                                try:
+                                    result['prev_close'] = float(row['Zamkniecie'])
+                                except (ValueError, TypeError):
+                                    pass
+                            break  # Interesuje nas tylko pierwszy wiersz
+
                     except Exception as e:
                         print(f"⚠️ Nie udało się pobrać prev_close dla {ticker}: {e}")
 
@@ -939,5 +950,5 @@ if __name__ == "__main__":
             bot_process.join()
 
 #windows
-if __name__ == "__main__":
-    main_loop()
+# if __name__ == "__main__":
+#     main_loop()
