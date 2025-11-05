@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import os
 import sys
+import math
+
 import io
 import csv
 import time
@@ -351,7 +353,9 @@ def download_with_retry(tickers, max_retries=3, delay=2):
             
             if hist_daily is None or hist_daily.empty:
                 raise Exception("Otrzymano puste dane dzienne z yfinance")
-            
+
+
+
             # Sprawdź które tickery nie mają danych
             if isinstance(tickers, list) and len(tickers) > 1:
                 # Multi-ticker: sprawdź kolumny i sprawdź czy mają rzeczywiste dane (nie tylko NaN-y)
@@ -364,7 +368,12 @@ def download_with_retry(tickers, max_retries=3, delay=2):
                         if ticker in hist_daily.columns.get_level_values(0):
                             # Sprawdź czy kolumna 'Close' ma jakieś nie-NaN wartości
                             ticker_data = hist_daily[ticker]
-                            if 'Close' in ticker_data.columns and not ticker_data['Close'].isna().all():
+                            df_realtime = hist_realtime[ticker]
+                            current_price = float(df_realtime['Close'].iloc[-1])
+                            has_yahoo_data = not math.isnan(current_price)
+
+                            if (has_yahoo_data and 'Close' in ticker_data.columns
+                                    and not ticker_data['Close'].isna().all()):
                                 available_daily.add(ticker)
                 elif not hist_daily.empty:
                     # Single ticker - sprawdź czy ma dane
@@ -470,31 +479,12 @@ def check_prices_for_exchange(exchange):
         try:
             # === SPRAWDŹ CZY TICKER MA DANE W YAHOO FINANCE ===
             has_yahoo_data = False
-            
+            df_realtime = hist_realtime[ticker]
             if isinstance(hist_daily.columns, pd.MultiIndex):
-                has_yahoo_data = ticker in hist_daily.columns.get_level_values(0)
+                current_price = float(df_realtime['Close'].iloc[-1])
+                has_yahoo_data = not math.isnan(current_price)
             elif not hist_daily.empty:
                 has_yahoo_data = True
-            
-            # === JEŚLI BRAK DANYCH W YAHOO, UŻYJ STOOQ ===
-            if not has_yahoo_data and ticker in stooq_data:
-                print(f"📊 {ticker}: używam danych ze Stooq (brak w Yahoo)")
-                
-                stooq_ticker_data = stooq_data[ticker]
-                current_price = stooq_ticker_data['close']
-                
-                # Dla Stooq nie mamy historii dziennej, więc pomijamy alerty spadków
-                print(f"  Aktualna cena (Stooq): {current_price:.2f}")
-                print(f"  ⚠️ Brak danych historycznych - pomijam alerty spadków")
-                
-                # Opcjonalnie: możesz wysłać info że ticker jest monitorowany tylko przez Stooq
-                if ticker not in alerted_types_today:
-                    alerted_types_today[ticker] = set()
-                    msg = f"ℹ️ {ticker}: monitorowanie przez Stooq (cena: {current_price:.2f} PLN)"
-                    send_telegram_message(msg)
-                    alerted_types_today[ticker].add('stooq_info')
-                
-                continue  # Przejdź do kolejnego tickera
             
             # === NORMALNA OBSŁUGA YAHOO FINANCE ===
             # Obsługa MultiIndex (wiele tickerów) vs single ticker
@@ -505,16 +495,8 @@ def check_prices_for_exchange(exchange):
                 df_daily = hist_daily
                 df_realtime = hist_realtime
             
-            # Sprawdzenia poprawności danych
-            if df_daily is None or df_daily.empty:
-                if ticker in stooq_data:
-                    print(f"📊 {ticker}: Yahoo brak danych dziennych, używam Stooq")
-                    continue
-                else:
-                    missing_data_tickers.append(ticker)
-                    continue
-            
-            if df_realtime is None or df_realtime.empty:
+
+            if df_realtime is None or df_realtime.empty or not has_yahoo_data:
                 if ticker in stooq_data:
                     print(f"📊 {ticker}: Yahoo brak real-time, używam Stooq")
                     stooq_ticker_data = stooq_data[ticker]
@@ -549,7 +531,7 @@ def check_prices_for_exchange(exchange):
                             print(f"[SENDING ALERT - STOOQ] {msg}")
                             send_telegram_message(msg)
                     else:
-                        print(f"  ⚠️ Wczorajsze zamknięcie jest NaN - pomijam {ticker}")
+                        print(f"  ⚠️ Wczorajsze zamknięcie jest NaN, brak danych w Stooq - pomijam {ticker}")
 
                     continue
                 else:
@@ -950,5 +932,5 @@ if __name__ == "__main__":
             bot_process.join()
 
 #windows
-# if __name__ == "__main__":
-#     main_loop()
+if __name__ == "__main__":
+    main_loop()
