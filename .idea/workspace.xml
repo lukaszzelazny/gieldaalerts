@@ -4,24 +4,29 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2a1366d5-d463-4bdf-8d8d-fb0bfa3ccaaa" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot_market_watch.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot_market_watch.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/moving_analizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/moving_analizer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ticker_analizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/ticker_analizer.py" afterDir="false" />
+    <list default="true" id="2a1366d5-d463-4bdf-8d8d-fb0bfa3ccaaa" name="Changes" comment="poprawa braku powiadomienia o alercie">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/bot_market_watch.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/bot_market_watch.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run.sh" beforeDir="false" afterPath="$PROJECT_DIR$/run.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 8
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 8
+}</component>
   <component name="ProjectId" id="32CddyGqDuUauPKVPf8yPCq959p" />
   <component name="ProjectLevelVcsManager">
     <ConfirmationsSetting value="1" id="Add" />
@@ -33,11 +38,15 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.bot_market_watch.executor": "Debug",
+    "Python.financial_report.executor": "Run",
+    "Python.test.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "main",
-    "last_opened_file_path": "C:/Users/ukasz/Documents/gieldaalerts"
+    "last_opened_file_path": "C:/Users/ukasz/Documents/gieldaalerts",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
 }]]></component>
   <component name="RecentsManager">
@@ -48,7 +57,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-python-sdk-79ce2b023f03-d902c0275401-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-252.25557.130" />
+        <option value="bundled-python-sdk-f69e5c277ee4-cbfc7b97e6b2-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-252.27397.106" />
       </set>
     </attachedChunks>
   </component>
@@ -60,6 +69,35 @@
       <option name="presentableId" value="Default" />
       <updated>1756928579392</updated>
     </task>
+    <task id="LOCAL-00001" summary="poprawa braku powiadomienia o alercie">
+      <option name="closed" value="true" />
+      <created>1761732197255</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1761732197255</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="poprawa braku powiadomienia o alercie" />
+    <option name="LAST_COMMIT_MESSAGE" value="poprawa braku powiadomienia o alercie" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/bot_market_watch.py</url>
+          <line>418</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/bot_market_watch.py</url>
+          <line>431</line>
+          <option name="timeStamp" value="3" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
   </component>
 </project>

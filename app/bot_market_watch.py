@@ -9,9 +9,8 @@ import yfinance as yf
 import pandas as pd
 from ticker_analizer import getScoreWithDetails
 from moving_analizer import calculate_moving_averages_signals
-import asyncio
-import threading
-# from telegram.ext import Updater, CommandHandler
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from telegram.ext import Application, CommandHandler
 import multiprocessing
 
@@ -331,20 +330,36 @@ def download_with_retry(tickers, max_retries=3, delay=2):
             
             # Sprawdź które tickery nie mają danych
             if isinstance(tickers, list) and len(tickers) > 1:
-                # Multi-ticker: sprawdź kolumny
+                # Multi-ticker: sprawdź kolumny i sprawdź czy mają rzeczywiste dane (nie tylko NaN-y)
                 available_daily = set()
                 available_realtime = set()
-                
+
                 if hasattr(hist_daily.columns, 'levels'):
-                    available_daily = set(hist_daily.columns.get_level_values(0))
+                    # Sprawdź każdy ticker czy ma dane (nie tylko kolumnę)
+                    for ticker in tickers:
+                        if ticker in hist_daily.columns.get_level_values(0):
+                            # Sprawdź czy kolumna 'Close' ma jakieś nie-NaN wartości
+                            ticker_data = hist_daily[ticker]
+                            if 'Close' in ticker_data.columns and not ticker_data['Close'].isna().all():
+                                available_daily.add(ticker)
                 elif not hist_daily.empty:
-                    available_daily = set(tickers)
-                    
+                    # Single ticker - sprawdź czy ma dane
+                    if 'Close' in hist_daily.columns and not hist_daily['Close'].isna().all():
+                        available_daily = set(tickers)
+
                 if hasattr(hist_realtime.columns, 'levels'):
-                    available_realtime = set(hist_realtime.columns.get_level_values(0))
+                    # Sprawdź każdy ticker czy ma dane (nie tylko kolumnę)
+                    for ticker in tickers:
+                        if ticker in hist_realtime.columns.get_level_values(0):
+                            # Sprawdź czy kolumna 'Close' ma jakieś nie-NaN wartości
+                            ticker_data = hist_realtime[ticker]
+                            if 'Close' in ticker_data.columns and not ticker_data['Close'].isna().all():
+                                available_realtime.add(ticker)
                 elif not hist_realtime.empty:
-                    available_realtime = set(tickers)
-                
+                    # Single ticker - sprawdź czy ma dane
+                    if 'Close' in hist_realtime.columns and not hist_realtime['Close'].isna().all():
+                        available_realtime = set(tickers)
+
                 failed_tickers_daily = [t for t in tickers if t not in available_daily]
                 failed_tickers_realtime = [t for t in tickers if t not in available_realtime]
                 
@@ -424,8 +439,8 @@ def check_prices_for_exchange(exchange):
         print(f"stooq_data: {stooq_data}")
         send_telegram_message(msg)
         return
-    
-    
+
+    print(f"stooq_data: {stooq_data}")
 
     for ticker in tickers_for_exchange:
         try:
@@ -899,7 +914,6 @@ if __name__ == "__main__":
     
     # Lub z multiprocessing:
     try:
-        import multiprocessing
         bot_process = multiprocessing.Process(target=telegram_loop)
         bot_process.start()
         print(f"Bot process started with PID: {bot_process.pid}")
@@ -915,3 +929,7 @@ if __name__ == "__main__":
         if 'bot_process' in locals() and bot_process.is_alive():
             bot_process.terminate()
             bot_process.join()
+
+#windows
+if __name__ == "__main__":
+    main_loop()
