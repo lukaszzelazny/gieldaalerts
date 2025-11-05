@@ -8,4 +8,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app
 
 # ustawienie punktu startowego
-CMD ["python", "app/bot_market_watch.py"]
+CMD ["python", "-u", "app/bot_market_watch.py"]

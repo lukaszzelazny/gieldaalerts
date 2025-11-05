@@ -22,16 +22,6 @@ load_dotenv()
 # KONFIGURACJA (dostosuj)
 # ----------------------
 
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
-# logging.getLogger("httpx").setLevel(logging.WARNING)
-# logging.getLogger("httpcore").setLevel(logging.WARNING)   # opcjonalnie
-
 
 RATING_LABELS = {
     2: "🟢🟢 <b>Mocne kupuj</b>",
